@@ -10,6 +10,8 @@ python3 -m http.server 8000
 
 Then open http://localhost:8000 in your browser.
 
+Do not open `index.html` directly as a file. The game uses small JavaScript modules, so the browser needs a local server.
+
 ## Project shape
 
 - `index.html`: small page shell
@@ -25,8 +27,11 @@ Then open http://localhost:8000 in your browser.
 - Mouse: look around
 - Space: jump
 - `Q`: switch between Pickaxe and Bow
+- `I`: open or close the Backpack
+- `1` to `8`: use a Hotbar slot
 - Hold left mouse button: mine lava crystals
 - Hold left mouse button on volcano rock: dig a tunnel through the volcano
+- Hold left mouse button on the wooden house: destroy it and collect wood
 - With the Bow selected, left mouse shoots visible arrows at the Round Dragon
 - Sheep walk on grass. Hit them with the Pickaxe or Bow to collect sheep meat.
 - If fewer than two sheep are left, new sheep can appear after 30 seconds.

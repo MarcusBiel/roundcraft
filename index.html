@@ -14,6 +14,15 @@
     </script>
   </head>
   <body>
+    <div id="fileWarning">
+      <div id="fileWarningBox">
+        <h1>Roundcraft needs a local server.</h1>
+        <p>Open <a href="http://localhost:8000/">http://localhost:8000/</a> instead.</p>
+        <p>If the server is not running, start it with:</p>
+        <code>python3 -m http.server 8000</code>
+      </div>
+    </div>
+
     <div id="startScreen">
       <div id="startBox">
         <h1>Roundcraft</h1>
@@ -33,7 +42,8 @@
         Diamonds: <span id="diamondCount">0</span><br />
         Diamond Pickaxes: <span id="diamondPickaxeCount">0</span><br />
         Dragon Meat: <span id="dragonMeatCount">0</span><br />
-        Sheep Meat: <span id="sheepMeatCount">0</span>
+        Sheep Meat: <span id="sheepMeatCount">0</span><br />
+        Wood: <span id="woodCount">0</span>
       </div>
       <div id="message"></div>
       <div id="crosshair"></div>
@@ -45,8 +55,28 @@
         <div id="mineLabel">Lava Crystal</div>
         <div id="mineTrack"><div id="mineFill"></div></div>
       </div>
+      <div id="hotbar"></div>
     </div>
 
+    <div id="backpackOverlay" class="hidden" aria-hidden="true">
+      <div id="backpackPanel">
+        <div id="backpackHeader">
+          <h2>Backpack</h2>
+          <button id="closeBackpack" type="button">Close</button>
+        </div>
+        <div id="heldItemLabel">Hand: empty</div>
+        <div class="slotTitle">Hotbar</div>
+        <div id="backpackHotbarSlots" class="slotGrid hotbarGrid"></div>
+        <div class="slotTitle">Backpack</div>
+        <div id="backpackSlots" class="slotGrid backpackGrid"></div>
+      </div>
+    </div>
+
+    <script>
+      if (window.location.protocol === "file:") {
+        document.documentElement.classList.add("openedAsFile");
+      }
+    </script>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

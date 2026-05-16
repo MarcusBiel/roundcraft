@@ -25,6 +25,9 @@ const crystalMiningSeconds = 10;
 const crystalReach = 7;
 const volcanoDigSeconds = 6;
 const volcanoDigReach = 10;
+const houseDestroySeconds = 8;
+const houseReach = 9;
+const houseWoodRewardCount = 12;
 const crystalAimDot = 0.96;
 const volcanoAimDot = 0.5;
 const worldHalfSize = 92;
@@ -43,6 +46,11 @@ const arrowSpeed = 24;
 const arrowLifeSeconds = 4.2;
 const arrowShotCooldownSeconds = 0.48;
 const arrowHitPadding = 0.45;
+const projectileObstacleRadius = 0.18;
+const dragonFireObstacleRadius = 0.72;
+const dragonFlightGroundClearance = 7;
+const hotbarSlotCount = 8;
+const backpackSlotCount = 18;
 const initialSheepMinCount = 2;
 const initialSheepMaxCount = 5;
 const sheepSafeMinCount = 2;
@@ -105,12 +113,19 @@ const diamondCountLabel = requireElement("diamondCount");
 const diamondPickaxeCountLabel = requireElement("diamondPickaxeCount");
 const dragonMeatCountLabel = requireElement("dragonMeatCount");
 const sheepMeatCountLabel = requireElement("sheepMeatCount");
+const woodCountLabel = requireElement("woodCount");
 const dragonPanel = requireElement("dragonPanel");
 const dragonFill = requireElement("dragonFill");
 const minePanel = requireElement("minePanel");
 const mineLabel = requireElement("mineLabel");
 const mineFill = requireElement("mineFill");
 const message = requireElement("message");
+const hotbar = requireElement("hotbar");
+const backpackOverlay = requireElement("backpackOverlay");
+const backpackHotbarSlots = requireElement("backpackHotbarSlots");
+const backpackSlotsElement = requireElement("backpackSlots");
+const heldItemLabel = requireElement("heldItemLabel");
+const closeBackpackButton = requireElement("closeBackpack");
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x82c8f0);
@@ -158,11 +173,12 @@ let targetYaw = 0;
 let targetPitch = 0;
 let activeCrystal = null;
 let visibleCrystal = null;
+let activeHouse = null;
+let visibleHouse = null;
 let activeVolcanoRock = false;
 let visibleVolcanoRock = false;
 let miningProgress = 0;
 let volcanoTunnelOpen = false;
-let minedCrystalCount = 0;
 let messageTimer = 0;
 let pickaxeSwing = 0;
 let playerHearts = maxPlayerHearts;
@@ -170,10 +186,9 @@ let dragonHealth = dragonMaxHealth;
 let dragonAlive = true;
 let dragonDefeated = false;
 let canFly = false;
-let diamondCount = 0;
-let diamondPickaxeCount = 0;
-let dragonMeatCount = 0;
-let sheepMeatCount = 0;
+let inventoryOpen = false;
+let heldInventoryStack = null;
+let restorePointerLockAfterBackpack = false;
 let nextDragonFireTime = 0;
 let dragonHitFlash = 0;
 let dragonFalling = false;
@@ -195,6 +210,7 @@ const dragonFireballs = [];
 const playerArrows = [];
 const solidObstacles = [];
 const volcanoRockParts = [];
+const houseParts = [];
 const dragonMouthPosition = new THREE.Vector3();
 const dragonFireDirection = new THREE.Vector3();
 const dragonFireTarget = new THREE.Vector3();
@@ -202,7 +218,23 @@ const dragonFacingDirection = new THREE.Vector3();
 const arrowStartPosition = new THREE.Vector3();
 const arrowDirection = new THREE.Vector3();
 const arrowPreviousPosition = new THREE.Vector3();
+const projectilePreviousPosition = new THREE.Vector3();
 let volcanoTunnelGroup = null;
+
+const inventoryItems = {
+  pickaxe: { name: "Pickaxe", shortName: "Pick", tool: toolPickaxe },
+  bow: { name: "Bow", shortName: "Bow", tool: toolBow },
+  lavaCrystal: { name: "Lava Crystal", shortName: "Lava" },
+  diamond: { name: "Diamond", shortName: "Dia" },
+  diamondPickaxe: { name: "Diamond Pickaxe", shortName: "D Pick" },
+  dragonMeat: { name: "Dragon Meat", shortName: "D Meat" },
+  sheepMeat: { name: "Sheep Meat", shortName: "S Meat" },
+  wood: { name: "Wood", shortName: "Wood" }
+};
+const hotbarSlots = Array.from({ length: hotbarSlotCount }, () => null);
+hotbarSlots[0] = { itemId: "pickaxe", count: 1, locked: true };
+hotbarSlots[1] = { itemId: "bow", count: 1, locked: true };
+const backpackSlots = Array.from({ length: backpackSlotCount }, () => null);
 
 const audio = createAudio({
   lavaBubbleSoundMinSeconds,
@@ -260,6 +292,7 @@ addWater();
 addVolcano();
 addCave();
 addTreasureChest();
+const house = addHouse();
 addCrystals();
 sheepSystem.addInitialSheep();
 const dragon = addDragon();
@@ -278,6 +311,10 @@ startScreen.addEventListener("click", () => {
 document.addEventListener("keydown", handleKeyDown);
 document.addEventListener("keyup", handleKeyUp);
 document.addEventListener("mousedown", (event) => {
+  if (inventoryOpen) {
+    return;
+  }
+
   if (event.button === 0 && gameStarted) {
     mouseDown = true;
     if (activeTool === toolBow) {
@@ -301,6 +338,8 @@ document.addEventListener("mouseup", (event) => {
 document.addEventListener("mousemove", handleMouseLook);
 document.addEventListener("pointerlockchange", handlePointerLockChange);
 document.addEventListener("contextmenu", (event) => event.preventDefault());
+backpackOverlay.addEventListener("click", handleBackpackClick);
+closeBackpackButton.addEventListener("click", closeBackpack);
 window.addEventListener("blur", stopPlayerInput);
 window.addEventListener("resize", resize);
 
@@ -309,7 +348,7 @@ animate();
 async function startGame() {
   gameStarted = true;
   startScreen.style.display = "none";
-      audio.start();
+  audio.start();
 
   if (!("requestPointerLock" in renderer.domElement)) {
     pointerLockFallback = true;
@@ -332,6 +371,10 @@ function handlePointerLockChange() {
   if (pointerLocked) {
     gameStarted = true;
     startScreen.style.display = "none";
+    return;
+  }
+
+  if (inventoryOpen) {
     return;
   }
 
@@ -868,6 +911,100 @@ function addTreasureChest() {
   });
 }
 
+function addHouse() {
+  const houseGroup = new THREE.Group();
+  houseGroup.name = "WoodenHouse";
+  houseGroup.position.set(8, 0, 7);
+  houseGroup.rotation.y = -0.28;
+  scene.add(houseGroup);
+
+  const wallMaterial = new THREE.MeshStandardMaterial({
+    color: 0xd9b987,
+    roughness: 0.82
+  });
+  const roofMaterial = new THREE.MeshStandardMaterial({
+    color: 0x8f2e22,
+    roughness: 0.76
+  });
+  const trimMaterial = new THREE.MeshStandardMaterial({
+    color: 0x5c341f,
+    roughness: 0.8
+  });
+  const glassMaterial = new THREE.MeshStandardMaterial({
+    color: 0xaee8ff,
+    emissive: 0x326d8a,
+    emissiveIntensity: 0.22,
+    roughness: 0.18
+  });
+
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.28, 5.1), trimMaterial);
+  floor.position.y = 0.14;
+  floor.receiveShadow = true;
+  addHousePart(houseGroup, floor);
+
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(6, 3.2, 4.5), wallMaterial);
+  walls.position.y = 1.88;
+  walls.castShadow = true;
+  walls.receiveShadow = true;
+  addHousePart(houseGroup, walls);
+
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(4.4, 2.15, 4), roofMaterial);
+  roof.position.y = 4.55;
+  roof.rotation.y = Math.PI / 4;
+  roof.scale.z = 0.82;
+  roof.castShadow = true;
+  addHousePart(houseGroup, roof);
+
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.18, 2.05, 0.12), trimMaterial);
+  door.position.set(0, 1.28, 2.31);
+  addHousePart(houseGroup, door);
+
+  const handle = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), new THREE.MeshStandardMaterial({ color: 0xf2c94c, metalness: 0.4, roughness: 0.35 }));
+  handle.position.set(0.36, 1.35, 2.4);
+  addHousePart(houseGroup, handle);
+
+  for (const x of [-1.82, 1.82]) {
+    const window = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.82, 0.1), glassMaterial);
+    window.position.set(x, 2.1, 2.32);
+    addHousePart(houseGroup, window);
+  }
+
+  for (const [x, z] of [
+    [-3.08, -1.7],
+    [-3.08, 1.7],
+    [3.08, -1.7],
+    [3.08, 1.7]
+  ]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 3.35, 10), trimMaterial);
+    post.position.set(x, 1.78, z);
+    post.castShadow = true;
+    addHousePart(houseGroup, post);
+  }
+
+  const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.55, 0.62), trimMaterial);
+  chimney.position.set(1.65, 5.25, -0.95);
+  chimney.castShadow = true;
+  addHousePart(houseGroup, chimney);
+
+  addSolidObstacle({
+    name: "Wooden House",
+    x: houseGroup.position.x,
+    z: houseGroup.position.z,
+    radius: 4.05,
+    minY: 0,
+    maxY: 5.8,
+    isActive: () => houseGroup.parent !== null
+  });
+
+  return houseGroup;
+}
+
+function addHousePart(houseGroup, part) {
+  part.userData.houseRoot = houseGroup;
+  houseGroup.add(part);
+  houseParts.push(part);
+}
+
 function addDragon() {
   const dragonGroup = new THREE.Group();
   dragonGroup.name = "RoundDragon";
@@ -1142,6 +1279,22 @@ function handleKeyDown(event) {
     event.preventDefault();
   }
 
+  if (event.code === "KeyI") {
+    if (gameStarted && !event.repeat) {
+      toggleBackpack();
+    }
+    return;
+  }
+
+  if (event.code === "Escape" && inventoryOpen) {
+    closeBackpack();
+    return;
+  }
+
+  if (inventoryOpen) {
+    return;
+  }
+
   switch (event.code) {
     case "KeyW":
     case "ArrowUp":
@@ -1178,6 +1331,16 @@ function handleKeyDown(event) {
       break;
     case "KeyQ":
       toggleTool();
+      break;
+    case "Digit1":
+    case "Digit2":
+    case "Digit3":
+    case "Digit4":
+    case "Digit5":
+    case "Digit6":
+    case "Digit7":
+    case "Digit8":
+      useHotbarSlot(Number(event.code.slice(5)) - 1);
       break;
     default:
       break;
@@ -1233,6 +1396,16 @@ function isGameKey(code) {
     case "ShiftRight":
     case "KeyE":
     case "KeyQ":
+    case "KeyI":
+    case "Escape":
+    case "Digit1":
+    case "Digit2":
+    case "Digit3":
+    case "Digit4":
+    case "Digit5":
+    case "Digit6":
+    case "Digit7":
+    case "Digit8":
       return true;
     default:
       return false;
@@ -1240,13 +1413,19 @@ function isGameKey(code) {
 }
 
 function toggleTool() {
-  activeTool = activeTool === toolPickaxe ? toolBow : toolPickaxe;
+  setActiveTool(activeTool === toolPickaxe ? toolBow : toolPickaxe);
+}
+
+function setActiveTool(tool) {
+  activeTool = tool;
   activeCrystal = null;
+  activeHouse = null;
   activeVolcanoRock = false;
   miningProgress = 0;
   updateMiningBar();
   updateToolVisibility();
   updatePlayerHud();
+  updateInventoryHud();
   showMessage(`${activeTool} ready.`);
 }
 
@@ -1456,9 +1635,43 @@ function distanceToRiver(x, z) {
   return nearestDistance;
 }
 
+function segmentHitsSolidObstacle(start, end, projectileRadius, ignoreSheep) {
+  const segmentX = end.x - start.x;
+  const segmentZ = end.z - start.z;
+  const segmentLengthSq = segmentX * segmentX + segmentZ * segmentZ;
+
+  for (const obstacle of solidObstacles) {
+    if (ignoreSheep && obstacle.name.startsWith("Sheep")) {
+      continue;
+    }
+
+    if (obstacle.isActive && !obstacle.isActive()) {
+      continue;
+    }
+
+    const t = segmentLengthSq === 0
+      ? 0
+      : THREE.MathUtils.clamp(((obstacle.x - start.x) * segmentX + (obstacle.z - start.z) * segmentZ) / segmentLengthSq, 0, 1);
+    const closestX = start.x + segmentX * t;
+    const closestZ = start.z + segmentZ * t;
+    const closestY = start.y + (end.y - start.y) * t;
+
+    if (closestY < obstacle.minY - projectileRadius || closestY > obstacle.maxY + projectileRadius) {
+      continue;
+    }
+
+    if (Math.hypot(closestX - obstacle.x, closestZ - obstacle.z) <= obstacle.radius + projectileRadius) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function updateMining(delta, time) {
   if (activeTool !== toolPickaxe) {
     activeCrystal = null;
+    activeHouse = null;
     activeVolcanoRock = false;
     miningProgress = 0;
     updateMiningBar();
@@ -1466,10 +1679,12 @@ function updateMining(delta, time) {
   }
 
   visibleCrystal = findCrystalInView();
+  visibleHouse = findHouseInView();
   visibleVolcanoRock = !volcanoTunnelOpen && findVolcanoRockInView();
 
-  if (!mouseDown || (visibleCrystal === null && !visibleVolcanoRock)) {
+  if (!mouseDown || (visibleCrystal === null && visibleHouse === null && !visibleVolcanoRock)) {
     activeCrystal = null;
+    activeHouse = null;
     activeVolcanoRock = false;
     miningProgress = 0;
     updateMiningBar();
@@ -1480,12 +1695,22 @@ function updateMining(delta, time) {
     mineLabel.textContent = "Lava Crystal";
     if (activeCrystal !== visibleCrystal) {
       activeCrystal = visibleCrystal;
+      activeHouse = null;
+      activeVolcanoRock = false;
+      miningProgress = 0;
+    }
+  } else if (visibleHouse !== null) {
+    mineLabel.textContent = "Wooden House";
+    if (activeHouse !== visibleHouse) {
+      activeCrystal = null;
+      activeHouse = visibleHouse;
       activeVolcanoRock = false;
       miningProgress = 0;
     }
   } else if (!activeVolcanoRock) {
     mineLabel.textContent = "Volcano Tunnel";
     activeCrystal = null;
+    activeHouse = null;
     activeVolcanoRock = true;
     miningProgress = 0;
   }
@@ -1498,6 +1723,15 @@ function updateMining(delta, time) {
     collectCrystal(activeCrystal);
     activeCrystal = null;
     visibleCrystal = null;
+    miningProgress = 0;
+    updateMiningBar();
+    return;
+  }
+
+  if (activeHouse !== null && miningProgress >= houseDestroySeconds) {
+    destroyHouse(activeHouse);
+    activeHouse = null;
+    visibleHouse = null;
     miningProgress = 0;
     updateMiningBar();
     return;
@@ -1588,10 +1822,29 @@ function findVolcanoRockInView() {
   return aimDirection.dot(aimTarget.normalize()) > volcanoAimDot;
 }
 
+function findHouseInView() {
+  if (house.parent === null) {
+    return null;
+  }
+
+  house.updateMatrixWorld(true);
+  raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+  const hits = raycaster.intersectObjects(houseParts, false);
+
+  for (const hit of hits) {
+    const houseRoot = hit.object.userData.houseRoot;
+    if (houseRoot && houseRoot.parent !== null && hit.distance <= houseReach) {
+      return houseRoot;
+    }
+  }
+
+  return null;
+}
+
 function updateMiningBar() {
-  const active = mouseDown && (activeCrystal !== null || activeVolcanoRock);
+  const active = mouseDown && (activeCrystal !== null || activeHouse !== null || activeVolcanoRock);
   minePanel.classList.toggle("visible", active);
-  const neededSeconds = activeVolcanoRock ? volcanoDigSeconds : crystalMiningSeconds;
+  const neededSeconds = activeHouse !== null ? houseDestroySeconds : activeVolcanoRock ? volcanoDigSeconds : crystalMiningSeconds;
   const percent = Math.min(miningProgress / neededSeconds, 1) * 100;
   mineFill.style.width = `${percent}%`;
 }
@@ -1603,7 +1856,7 @@ function collectCrystal(crystal) {
 
   scene.remove(crystal);
   removeCrystalParts(crystal);
-  minedCrystalCount += 1;
+  addInventoryItem("lavaCrystal", 1);
   updateInventoryHud();
   showMessage("Lava crystal collected!");
 }
@@ -1612,6 +1865,26 @@ function removeCrystalParts(crystal) {
   for (let index = crystalParts.length - 1; index >= 0; index -= 1) {
     if (crystalParts[index].userData.crystalRoot === crystal) {
       crystalParts.splice(index, 1);
+    }
+  }
+}
+
+function destroyHouse(houseGroup) {
+  if (houseGroup === null) {
+    throw new Error("Cannot destroy a missing house.");
+  }
+
+  scene.remove(houseGroup);
+  removeHouseParts(houseGroup);
+  addInventoryItem("wood", houseWoodRewardCount);
+  updateInventoryHud();
+  showMessage(`House destroyed! Wood +${houseWoodRewardCount}.`);
+}
+
+function removeHouseParts(houseGroup) {
+  for (let index = houseParts.length - 1; index >= 0; index -= 1) {
+    if (houseParts[index].userData.houseRoot === houseGroup) {
+      houseParts.splice(index, 1);
     }
   }
 }
@@ -1643,7 +1916,8 @@ function updateDragon(time, delta) {
   const orbitAngle = time * 0.34 + dragon.userData.orbitOffset;
   const x = Math.cos(orbitAngle) * 18;
   const z = -22 + Math.sin(orbitAngle) * 12;
-  dragon.position.set(x, 10.8 + Math.sin(time * 1.35) * 1.2, z);
+  const flightY = Math.max(10.8 + Math.sin(time * 1.35) * 1.2, groundHeightAt(x, z) + dragonFlightGroundClearance);
+  dragon.position.set(x, flightY, z);
   dragonFacingDirection.set(player.position.x - dragon.position.x, 0, player.position.z - dragon.position.z);
   if (dragonFacingDirection.lengthSq() > 0.0001) {
     dragonFacingDirection.normalize();
@@ -1707,11 +1981,20 @@ function updateDragonFireballs(delta) {
   for (let index = dragonFireballs.length - 1; index >= 0; index -= 1) {
     const fireball = dragonFireballs[index];
     fireball.ageSeconds += delta;
+    projectilePreviousPosition.copy(fireball.mesh.position);
     fireball.mesh.position.addScaledVector(fireball.direction, dragonFireSpeed * delta);
     fireball.mesh.scale.setScalar(0.9 + Math.sin(fireball.ageSeconds * 22) * 0.1);
 
     dragonFireTarget.copy(player.position);
     dragonFireTarget.y -= dragonFireTargetLowering;
+
+    if (
+      segmentHitsSolidObstacle(projectilePreviousPosition, fireball.mesh.position, dragonFireObstacleRadius, false)
+      || fireball.mesh.position.y <= groundHeightAt(fireball.mesh.position.x, fireball.mesh.position.z) + dragonFireObstacleRadius
+    ) {
+      removeDragonFireball(index);
+      continue;
+    }
 
     if (dragonAlive && gameStarted && fireball.mesh.position.distanceTo(dragonFireTarget) <= dragonFireHitRadius) {
       removeDragonFireball(index);
@@ -1757,6 +2040,11 @@ function updatePlayerArrows(delta) {
 
     const travelDistance = arrowSpeed * delta;
     arrow.mesh.position.addScaledVector(arrow.direction, travelDistance);
+
+    if (segmentHitsSolidObstacle(arrowPreviousPosition, arrow.mesh.position, projectileObstacleRadius, true)) {
+      removePlayerArrow(index);
+      continue;
+    }
 
     const hitSheep = sheepSystem.findHitByArrow(arrowPreviousPosition, arrow.direction, travelDistance);
     if (hitSheep !== null) {
@@ -1839,9 +2127,9 @@ function defeatDragon() {
   dragon.userData.leftWing.rotation.x = -0.35;
   dragon.userData.rightWing.rotation.x = 0.35;
   canFly = true;
-  diamondCount += 1;
-  diamondPickaxeCount += 2;
-  dragonMeatCount += 3;
+  addInventoryItem("diamond", 1);
+  addInventoryItem("diamondPickaxe", 2);
+  addInventoryItem("dragonMeat", 3);
   updatePlayerHud();
   updateInventoryHud();
   updateDragonBar();
@@ -1865,13 +2153,13 @@ function damagePlayer(hitMessage, deathMessage) {
 }
 
 function collectSheepMeat(messageText) {
-  sheepMeatCount += 1;
+  addInventoryItem("sheepMeat", 1);
   updateInventoryHud();
   showMessage(messageText);
 }
 
 function eatMeat() {
-  if (sheepMeatCount <= 0 && dragonMeatCount <= 0) {
+  if (countInventoryItem("sheepMeat") <= 0 && countInventoryItem("dragonMeat") <= 0) {
     showMessage("No meat yet.");
     return;
   }
@@ -1881,8 +2169,8 @@ function eatMeat() {
     return;
   }
 
-  if (sheepMeatCount > 0) {
-    sheepMeatCount -= 1;
+  if (countInventoryItem("sheepMeat") > 0) {
+    removeInventoryItem("sheepMeat", 1);
     playerHearts = Math.min(maxPlayerHearts, playerHearts + sheepMeatHealHearts);
     updatePlayerHud();
     updateInventoryHud();
@@ -1890,7 +2178,7 @@ function eatMeat() {
     return;
   }
 
-  dragonMeatCount -= 1;
+  removeInventoryItem("dragonMeat", 1);
   playerHearts = Math.min(maxPlayerHearts, playerHearts + dragonMeatHealHearts);
   updatePlayerHud();
   updateInventoryHud();
@@ -1904,11 +2192,266 @@ function updatePlayerHud() {
 }
 
 function updateInventoryHud() {
-  crystalCountLabel.textContent = String(minedCrystalCount);
-  diamondCountLabel.textContent = String(diamondCount);
-  diamondPickaxeCountLabel.textContent = String(diamondPickaxeCount);
-  dragonMeatCountLabel.textContent = String(dragonMeatCount);
-  sheepMeatCountLabel.textContent = String(sheepMeatCount);
+  crystalCountLabel.textContent = String(countInventoryItem("lavaCrystal"));
+  diamondCountLabel.textContent = String(countInventoryItem("diamond"));
+  diamondPickaxeCountLabel.textContent = String(countInventoryItem("diamondPickaxe"));
+  dragonMeatCountLabel.textContent = String(countInventoryItem("dragonMeat"));
+  sheepMeatCountLabel.textContent = String(countInventoryItem("sheepMeat"));
+  woodCountLabel.textContent = String(countInventoryItem("wood"));
+  renderHotbar();
+
+  if (inventoryOpen) {
+    renderBackpack();
+  }
+}
+
+function addInventoryItem(itemId, count) {
+  if (!inventoryItems[itemId]) {
+    throw new Error(`Unknown inventory item: ${itemId}`);
+  }
+
+  const existingStack = findInventoryStack(itemId);
+  if (existingStack !== null) {
+    existingStack.count += count;
+    return;
+  }
+
+  const emptyBackpackIndex = backpackSlots.findIndex((slot) => slot === null);
+  if (emptyBackpackIndex !== -1) {
+    backpackSlots[emptyBackpackIndex] = { itemId, count };
+    return;
+  }
+
+  const emptyHotbarIndex = hotbarSlots.findIndex((slot) => slot === null);
+  if (emptyHotbarIndex !== -1) {
+    hotbarSlots[emptyHotbarIndex] = { itemId, count };
+    return;
+  }
+
+  throw new Error("Backpack is full.");
+}
+
+function removeInventoryItem(itemId, count) {
+  if (countInventoryItem(itemId) < count) {
+    throw new Error(`Not enough ${itemId} in inventory.`);
+  }
+
+  let remaining = count;
+  for (const slots of [hotbarSlots, backpackSlots]) {
+    for (let index = 0; index < slots.length; index += 1) {
+      const slot = slots[index];
+      if (slot === null || slot.itemId !== itemId || slot.locked) {
+        continue;
+      }
+
+      const removed = Math.min(slot.count, remaining);
+      slot.count -= removed;
+      remaining -= removed;
+
+      if (slot.count <= 0) {
+        slots[index] = null;
+      }
+
+      if (remaining <= 0) {
+        return;
+      }
+    }
+  }
+}
+
+function countInventoryItem(itemId) {
+  let total = 0;
+  for (const slot of [...hotbarSlots, ...backpackSlots]) {
+    if (slot !== null && slot.itemId === itemId && !slot.locked) {
+      total += slot.count;
+    }
+  }
+  return total;
+}
+
+function findInventoryStack(itemId) {
+  for (const slot of [...backpackSlots, ...hotbarSlots]) {
+    if (slot !== null && slot.itemId === itemId && !slot.locked) {
+      return slot;
+    }
+  }
+  return null;
+}
+
+function toggleBackpack() {
+  if (inventoryOpen) {
+    closeBackpack();
+    return;
+  }
+
+  openBackpack();
+}
+
+function openBackpack() {
+  restorePointerLockAfterBackpack = pointerLocked;
+  inventoryOpen = true;
+  stopPlayerInput();
+
+  if (document.pointerLockElement === renderer.domElement) {
+    document.exitPointerLock();
+  }
+
+  backpackOverlay.classList.remove("hidden");
+  backpackOverlay.setAttribute("aria-hidden", "false");
+  renderBackpack();
+}
+
+function closeBackpack() {
+  if (!inventoryOpen) {
+    return;
+  }
+
+  if (heldInventoryStack !== null) {
+    addInventoryItem(heldInventoryStack.itemId, heldInventoryStack.count);
+    heldInventoryStack = null;
+  }
+
+  inventoryOpen = false;
+  backpackOverlay.classList.add("hidden");
+  backpackOverlay.setAttribute("aria-hidden", "true");
+  updateInventoryHud();
+
+  if (restorePointerLockAfterBackpack) {
+    restorePointerLockAfterBackpack = false;
+    void restorePointerLock();
+  }
+}
+
+async function restorePointerLock() {
+  if (!gameStarted || pointerLocked || pointerLockFallback) {
+    return;
+  }
+
+  if (!("requestPointerLock" in renderer.domElement)) {
+    pointerLockFallback = true;
+    showMessage("Mouse lock is missing. Hold right mouse to look.");
+    return;
+  }
+
+  try {
+    await renderer.domElement.requestPointerLock();
+  } catch (error) {
+    pointerLockFallback = true;
+    showMessage("Hold right mouse to look.");
+  }
+}
+
+function handleBackpackClick(event) {
+  const slotButton = event.target.closest(".slotButton");
+  if (slotButton === null) {
+    return;
+  }
+
+  const area = slotButton.dataset.area;
+  const index = Number(slotButton.dataset.index);
+  const slots = area === "hotbar" ? hotbarSlots : backpackSlots;
+  const slot = slots[index];
+
+  if (slot && slot.locked) {
+    setActiveTool(inventoryItems[slot.itemId].tool);
+    return;
+  }
+
+  if (heldInventoryStack === null) {
+    if (slot === null) {
+      return;
+    }
+
+    heldInventoryStack = slot;
+    slots[index] = null;
+    renderBackpack();
+    updateInventoryHud();
+    return;
+  }
+
+  if (slot === null) {
+    slots[index] = heldInventoryStack;
+    heldInventoryStack = null;
+    renderBackpack();
+    updateInventoryHud();
+    return;
+  }
+
+  if (slot.itemId === heldInventoryStack.itemId) {
+    slot.count += heldInventoryStack.count;
+    heldInventoryStack = null;
+    renderBackpack();
+    updateInventoryHud();
+    return;
+  }
+
+  slots[index] = heldInventoryStack;
+  heldInventoryStack = slot;
+  renderBackpack();
+  updateInventoryHud();
+}
+
+function useHotbarSlot(index) {
+  const slot = hotbarSlots[index];
+  if (slot === null) {
+    return;
+  }
+
+  const item = inventoryItems[slot.itemId];
+  if (item.tool) {
+    setActiveTool(item.tool);
+    return;
+  }
+
+  if (slot.itemId === "sheepMeat" || slot.itemId === "dragonMeat") {
+    eatMeat();
+  }
+}
+
+function renderHotbar() {
+  hotbar.replaceChildren();
+
+  for (let index = 0; index < hotbarSlots.length; index += 1) {
+    hotbar.appendChild(makeSlotElement(hotbarSlots[index], "hotbar", index, false));
+  }
+}
+
+function renderBackpack() {
+  backpackHotbarSlots.replaceChildren();
+  backpackSlotsElement.replaceChildren();
+
+  for (let index = 0; index < hotbarSlots.length; index += 1) {
+    backpackHotbarSlots.appendChild(makeSlotElement(hotbarSlots[index], "hotbar", index, true));
+  }
+
+  for (let index = 0; index < backpackSlots.length; index += 1) {
+    backpackSlotsElement.appendChild(makeSlotElement(backpackSlots[index], "backpack", index, true));
+  }
+
+  heldItemLabel.textContent = heldInventoryStack === null
+    ? "Hand: empty"
+    : `Hand: ${inventoryItems[heldInventoryStack.itemId].name} x${heldInventoryStack.count}`;
+}
+
+function makeSlotElement(slot, area, index, interactive) {
+  const element = document.createElement(interactive ? "button" : "div");
+  element.className = interactive ? "slotButton" : "hotbarSlot";
+  element.dataset.area = area;
+  element.dataset.index = String(index);
+
+  if (slot === null) {
+    element.innerHTML = `<span class="slotName">${index + 1}</span>`;
+    return element;
+  }
+
+  const item = inventoryItems[slot.itemId];
+  element.classList.toggle("locked", Boolean(slot.locked));
+  element.classList.toggle("activeTool", item.tool === activeTool);
+  element.innerHTML = `
+    <span class="slotName">${item.shortName}</span>
+    ${slot.count > 1 ? `<span class="slotCount">${slot.count}</span>` : ""}
+  `;
+  return element;
 }
 
 function updateDragonBar() {
