@@ -328,6 +328,7 @@
       const dragonDamageSeconds = 1.6;
       const flyingSpeed = 10;
       const flyingVerticalSpeed = 8;
+      const dragonDeadGroundY = 1.15;
       const volcanoCenter = new THREE.Vector3(0, 0, -34);
 
       const startScreen = requireElement("startScreen");
@@ -409,6 +410,7 @@
       let nextDragonDamageTime = 0;
       let dragonTargeted = false;
       let dragonHitFlash = 0;
+      let dragonFalling = false;
       let lavaTouchSeconds = 0;
       let audioContext = null;
       let audioMaster = null;
@@ -1819,8 +1821,14 @@
 
       function updateDragon(time, delta) {
         if (!dragonAlive) {
-          dragon.position.y = Math.max(0.9, dragon.position.y - delta * 3.6);
-          dragon.rotation.z += delta * 1.2;
+          if (dragonFalling) {
+            dragon.position.y = Math.max(dragonDeadGroundY, dragon.position.y - delta * 3.6);
+
+            if (dragon.position.y <= dragonDeadGroundY) {
+              dragon.position.y = dragonDeadGroundY;
+              dragonFalling = false;
+            }
+          }
           return;
         }
 
@@ -1899,6 +1907,11 @@
 
         dragonAlive = false;
         dragonDefeated = true;
+        dragonFalling = true;
+        dragon.rotation.set(0, dragon.rotation.y, Math.PI / 2);
+        dragon.userData.breath.visible = false;
+        dragon.userData.leftWing.rotation.x = -0.35;
+        dragon.userData.rightWing.rotation.x = 0.35;
         canFly = true;
         diamondCount += 1;
         diamondPickaxeCount += 2;
