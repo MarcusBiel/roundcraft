@@ -77,6 +77,20 @@
         line-height: 1.35;
       }
 
+      #playerStatus {
+        position: absolute;
+        top: 1rem;
+        left: 1rem;
+        min-width: 12.5rem;
+        padding: 0.7rem 0.8rem;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 0.45rem;
+        background: rgba(10, 21, 28, 0.62);
+        box-shadow: 0 0.6rem 1.6rem rgba(0, 0, 0, 0.18);
+        font-weight: 700;
+        line-height: 1.35;
+      }
+
       #message {
         position: absolute;
         top: 1rem;
@@ -165,6 +179,67 @@
         background: linear-gradient(90deg, #ffd24a, #ff7a1a, #ef2a14);
         box-shadow: 0 0 0.8rem rgba(255, 111, 20, 0.7);
       }
+
+      #dragonPanel {
+        position: absolute;
+        left: 50%;
+        bottom: 4.15rem;
+        width: min(22rem, calc(100vw - 2rem));
+        transform: translateX(-50%);
+        opacity: 1;
+        transition: opacity 0.2s ease;
+      }
+
+      #dragonPanel.hidden {
+        opacity: 0;
+      }
+
+      #dragonLabel {
+        margin-bottom: 0.45rem;
+        text-align: center;
+        font-weight: 800;
+        text-shadow: 0 0.15rem 0.35rem rgba(0, 0, 0, 0.45);
+      }
+
+      #dragonTrack {
+        height: 0.75rem;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.32);
+        border-radius: 999px;
+        background: rgba(5, 15, 20, 0.64);
+      }
+
+      #dragonFill {
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #8efff0, #b965ff, #ff4d8d);
+        box-shadow: 0 0 0.75rem rgba(185, 101, 255, 0.7);
+      }
+
+      @media (max-width: 720px) {
+        #playerStatus,
+        #inventory {
+          top: 0.6rem;
+          min-width: 0;
+          width: calc(50vw - 1.35rem);
+          padding: 0.55rem 0.6rem;
+          font-size: 0.82rem;
+          line-height: 1.28;
+        }
+
+        #playerStatus {
+          left: 0.6rem;
+        }
+
+        #inventory {
+          right: 0.6rem;
+        }
+
+        #message {
+          top: 5.9rem;
+        }
+      }
     </style>
     <script type="importmap">
       {
@@ -183,9 +258,23 @@
     </div>
 
     <div id="hud">
-      <div id="inventory">Inventory<br />Lava Crystals: <span id="crystalCount">0</span></div>
+      <div id="playerStatus">
+        Hearts: <span id="heartCount">5</span><br />
+        Flying: <span id="flyingState">No</span>
+      </div>
+      <div id="inventory">
+        Inventory<br />
+        Lava Crystals: <span id="crystalCount">0</span><br />
+        Diamonds: <span id="diamondCount">0</span><br />
+        Diamond Pickaxes: <span id="diamondPickaxeCount">0</span><br />
+        Dragon Meat: <span id="dragonMeatCount">0</span>
+      </div>
       <div id="message"></div>
       <div id="crosshair"></div>
+      <div id="dragonPanel">
+        <div id="dragonLabel">Round Dragon</div>
+        <div id="dragonTrack"><div id="dragonFill"></div></div>
+      </div>
       <div id="minePanel">
         <div id="mineLabel">Lava Crystal</div>
         <div id="mineTrack"><div id="mineFill"></div></div>
@@ -198,8 +287,6 @@
       /*
         Future Roundcraft ideas:
         - Monsters get angry when the player hits them.
-        - There is an Ender dragon.
-        - Beating the Ender dragon gives dragon meat, a diamond pickaxe, and flying.
         - Diamonds can later be found in secret treasure chests.
         - The pickaxe never breaks.
         - The pickaxe can later become stronger with fire/lava and diamond.
@@ -219,10 +306,25 @@
       const pickaxeHitSeconds = 0.28;
       const lavaBubbleSoundMinSeconds = 0.36;
       const lavaBubbleSoundSpreadSeconds = 0.58;
+      const maxPlayerHearts = 5;
+      const dragonMaxHealth = 12;
+      const dragonHitReach = 34;
+      const dragonAttackRange = 20;
+      const dragonHitSeconds = 0.38;
+      const dragonDamageSeconds = 1.6;
+      const flyingSpeed = 10;
+      const flyingVerticalSpeed = 8;
       const volcanoCenter = new THREE.Vector3(0, 0, -34);
 
       const startScreen = requireElement("startScreen");
+      const heartCountLabel = requireElement("heartCount");
+      const flyingStateLabel = requireElement("flyingState");
       const crystalCountLabel = requireElement("crystalCount");
+      const diamondCountLabel = requireElement("diamondCount");
+      const diamondPickaxeCountLabel = requireElement("diamondPickaxeCount");
+      const dragonMeatCountLabel = requireElement("dragonMeatCount");
+      const dragonPanel = requireElement("dragonPanel");
+      const dragonFill = requireElement("dragonFill");
       const minePanel = requireElement("minePanel");
       const mineFill = requireElement("mineFill");
       const message = requireElement("message");
@@ -253,7 +355,9 @@
         forward: false,
         backward: false,
         left: false,
-        right: false
+        right: false,
+        up: false,
+        down: false
       };
       let canJump = false;
       let mouseDown = false;
@@ -273,6 +377,18 @@
       let minedCrystalCount = 0;
       let messageTimer = 0;
       let pickaxeSwing = 0;
+      let playerHearts = maxPlayerHearts;
+      let dragonHealth = dragonMaxHealth;
+      let dragonAlive = true;
+      let dragonDefeated = false;
+      let canFly = false;
+      let diamondCount = 0;
+      let diamondPickaxeCount = 0;
+      let dragonMeatCount = 0;
+      let nextDragonHitTime = 0;
+      let nextDragonDamageTime = 0;
+      let dragonTargeted = false;
+      let dragonHitFlash = 0;
       let audioContext = null;
       let audioMaster = null;
       let nextPickaxeHitTime = 0;
@@ -284,6 +400,7 @@
       const lavaBubbles = [];
       const lavaSparks = [];
       const lavaDrops = [];
+      const dragonParts = [];
 
       addLights();
       addGround();
@@ -291,7 +408,11 @@
       addCave();
       addTreasureChest();
       addCrystals();
+      const dragon = addDragon();
       const pickaxe = addPickaxe();
+      updatePlayerHud();
+      updateInventoryHud();
+      updateDragonBar();
 
       startScreen.addEventListener("click", () => {
         startGame();
@@ -402,6 +523,8 @@
         move.backward = false;
         move.left = false;
         move.right = false;
+        move.up = false;
+        move.down = false;
         mouseDown = false;
         dragLooking = false;
       }
@@ -720,6 +843,129 @@
         chest.add(glow);
       }
 
+      function addDragon() {
+        const dragonGroup = new THREE.Group();
+        dragonGroup.name = "RoundDragon";
+        dragonGroup.position.set(11, 9, -25);
+        dragonGroup.userData.orbitOffset = Math.PI / 2;
+        scene.add(dragonGroup);
+
+        const bodyMaterial = new THREE.MeshStandardMaterial({
+          color: 0x292044,
+          emissive: 0x180c2b,
+          emissiveIntensity: 0.25,
+          roughness: 0.58
+        });
+        const wingMaterial = new THREE.MeshStandardMaterial({
+          color: 0x3b2a67,
+          emissive: 0x140929,
+          emissiveIntensity: 0.18,
+          roughness: 0.65,
+          side: THREE.DoubleSide
+        });
+        const hornMaterial = new THREE.MeshStandardMaterial({
+          color: 0xd6efff,
+          emissive: 0x395c76,
+          emissiveIntensity: 0.15,
+          roughness: 0.28
+        });
+        const eyeMaterial = new THREE.MeshStandardMaterial({
+          color: 0x8efff0,
+          emissive: 0x4ffff0,
+          emissiveIntensity: 1.2,
+          roughness: 0.2
+        });
+        const fireMaterial = new THREE.MeshBasicMaterial({
+          color: 0xff6d24,
+          transparent: true,
+          opacity: 0.55,
+          side: THREE.DoubleSide
+        });
+
+        const body = new THREE.Mesh(new THREE.SphereGeometry(1.2, 28, 18), bodyMaterial);
+        body.scale.set(2.45, 0.82, 0.92);
+        body.castShadow = true;
+        addDragonPart(dragonGroup, body);
+
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.78, 24, 16), bodyMaterial);
+        head.position.set(2.75, 0.32, 0);
+        head.scale.set(1.18, 0.82, 0.82);
+        head.castShadow = true;
+        addDragonPart(dragonGroup, head);
+
+        const snout = new THREE.Mesh(new THREE.ConeGeometry(0.46, 0.96, 14), bodyMaterial);
+        snout.position.set(3.65, 0.23, 0);
+        snout.rotation.z = -Math.PI / 2;
+        snout.castShadow = true;
+        addDragonPart(dragonGroup, snout);
+
+        const tail = new THREE.Mesh(new THREE.ConeGeometry(0.42, 3.2, 14), bodyMaterial);
+        tail.position.set(-3.05, -0.05, 0);
+        tail.rotation.z = Math.PI / 2;
+        tail.castShadow = true;
+        addDragonPart(dragonGroup, tail);
+
+        const leftWing = makeDragonWing(wingMaterial);
+        leftWing.position.set(-0.2, 0.15, -0.74);
+        leftWing.rotation.y = 0.18;
+        leftWing.castShadow = true;
+        addDragonPart(dragonGroup, leftWing);
+        dragonGroup.userData.leftWing = leftWing;
+
+        const rightWing = makeDragonWing(wingMaterial);
+        rightWing.position.set(-0.2, 0.15, 0.74);
+        rightWing.rotation.y = Math.PI - 0.18;
+        rightWing.castShadow = true;
+        addDragonPart(dragonGroup, rightWing);
+        dragonGroup.userData.rightWing = rightWing;
+
+        for (const side of [-1, 1]) {
+          const horn = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.62, 10), hornMaterial);
+          horn.position.set(2.82, 0.92, side * 0.34);
+          horn.rotation.z = -0.38;
+          horn.castShadow = true;
+          dragonGroup.add(horn);
+
+          const eye = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), eyeMaterial);
+          eye.position.set(3.32, 0.45, side * 0.37);
+          dragonGroup.add(eye);
+        }
+
+        const breath = new THREE.Mesh(new THREE.ConeGeometry(0.42, 2.8, 18, 1, true), fireMaterial);
+        breath.name = "DragonBreath";
+        breath.position.set(4.7, 0.05, 0);
+        breath.rotation.z = -Math.PI / 2;
+        breath.visible = true;
+        dragonGroup.add(breath);
+        dragonGroup.userData.breath = breath;
+
+        const dragonLight = new THREE.PointLight(0x8efff0, 2.1, 11, 2.3);
+        dragonLight.position.set(2.4, 0.5, 0);
+        dragonGroup.add(dragonLight);
+
+        return dragonGroup;
+      }
+
+      function makeDragonWing(material) {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute([
+            -0.7, 0, 0,
+            -3.6, 0.18, -3.1,
+            0.95, 0.1, -1.35
+          ], 3)
+        );
+        geometry.computeVertexNormals();
+        return new THREE.Mesh(geometry, material);
+      }
+
+      function addDragonPart(dragonGroup, part) {
+        part.userData.dragonRoot = dragonGroup;
+        dragonGroup.add(part);
+        dragonParts.push(part);
+      }
+
       function addCrystals() {
         const positions = [
           new THREE.Vector3(-6.5, 0, -17.5),
@@ -986,10 +1232,21 @@
             move.right = true;
             break;
           case "Space":
-            if (canJump) {
+            if (canFly) {
+              move.up = true;
+            } else if (canJump) {
               velocity.y = jumpSpeed;
               canJump = false;
             }
+            break;
+          case "ShiftLeft":
+          case "ShiftRight":
+            if (canFly) {
+              move.down = true;
+            }
+            break;
+          case "KeyE":
+            eatDragonMeat();
             break;
           default:
             break;
@@ -1018,6 +1275,13 @@
           case "ArrowRight":
             move.right = false;
             break;
+          case "Space":
+            move.up = false;
+            break;
+          case "ShiftLeft":
+          case "ShiftRight":
+            move.down = false;
+            break;
           default:
             break;
         }
@@ -1034,6 +1298,9 @@
           case "KeyD":
           case "ArrowRight":
           case "Space":
+          case "ShiftLeft":
+          case "ShiftRight":
+          case "KeyE":
             return true;
           default:
             return false;
@@ -1049,6 +1316,8 @@
         updatePlayer(delta);
         updateMining(delta, time);
         updateLava(time, delta);
+        updateDragon(time, delta);
+        updateDragonFight(time, delta);
         updateAudio(time);
         updatePickaxe(time, delta);
         updateMessage(delta);
@@ -1068,7 +1337,11 @@
           return;
         }
 
-        velocity.y -= gravity * delta;
+        if (canFly) {
+          velocity.y = (Number(move.up) - Number(move.down)) * flyingVerticalSpeed;
+        } else {
+          velocity.y -= gravity * delta;
+        }
 
         const forwardInput = Number(move.forward) - Number(move.backward);
         const rightInput = Number(move.right) - Number(move.left);
@@ -1081,7 +1354,7 @@
           rightVector.crossVectors(forwardVector, player.up).normalize();
           desiredMove.addScaledVector(forwardVector, forwardInput);
           desiredMove.addScaledVector(rightVector, rightInput);
-          desiredMove.normalize().multiplyScalar(walkSpeed);
+          desiredMove.normalize().multiplyScalar(canFly ? flyingSpeed : walkSpeed);
         }
 
         const movementMix = Math.min(delta * movementSharpness, 1);
@@ -1094,6 +1367,12 @@
 
         player.position.x = THREE.MathUtils.clamp(player.position.x, -worldHalfSize, worldHalfSize);
         player.position.z = THREE.MathUtils.clamp(player.position.z, -worldHalfSize, worldHalfSize);
+
+        if (canFly) {
+          player.position.y = THREE.MathUtils.clamp(player.position.y, playerHeight, 34);
+          canJump = false;
+          return;
+        }
 
         if (player.position.y < playerHeight) {
           velocity.y = 0;
@@ -1168,7 +1447,7 @@
         scene.remove(crystal);
         removeCrystalParts(crystal);
         minedCrystalCount += 1;
-        crystalCountLabel.textContent = String(minedCrystalCount);
+        updateInventoryHud();
         showMessage("Lava crystal collected!");
       }
 
@@ -1178,6 +1457,150 @@
             crystalParts.splice(index, 1);
           }
         }
+      }
+
+      function updateDragon(time, delta) {
+        if (!dragonAlive) {
+          dragon.position.y = Math.max(0.9, dragon.position.y - delta * 3.6);
+          dragon.rotation.z += delta * 1.2;
+          return;
+        }
+
+        const orbitAngle = time * 0.34 + dragon.userData.orbitOffset;
+        const x = Math.cos(orbitAngle) * 18;
+        const z = -22 + Math.sin(orbitAngle) * 12;
+        dragon.position.set(x, 10.8 + Math.sin(time * 1.35) * 1.2, z);
+        dragon.rotation.y = -orbitAngle;
+        dragon.rotation.z = Math.sin(time * 2.6) * 0.09;
+
+        const wingFlap = Math.sin(time * 7.5) * 0.45;
+        dragon.userData.leftWing.rotation.x = wingFlap;
+        dragon.userData.rightWing.rotation.x = -wingFlap;
+        dragon.userData.breath.visible = Math.sin(time * 2.1) > -0.25;
+        dragon.userData.breath.scale.setScalar(0.8 + Math.max(0, Math.sin(time * 6.4)) * 0.3);
+
+        if (dragonHitFlash > 0) {
+          dragonHitFlash = Math.max(0, dragonHitFlash - delta);
+          dragon.scale.setScalar(1 + dragonHitFlash * 0.7);
+        } else {
+          dragon.scale.setScalar(1);
+        }
+      }
+
+      function updateDragonFight(time) {
+        dragonTargeted = dragonAlive && findDragonInView() !== null;
+
+        if (dragonTargeted && mouseDown && time >= nextDragonHitTime) {
+          hitDragon(time);
+        }
+
+        if (!dragonAlive || !gameStarted || time < nextDragonDamageTime) {
+          return;
+        }
+
+        const dragonDistance = player.position.distanceTo(dragon.position);
+        if (dragonDistance <= dragonAttackRange) {
+          damagePlayer();
+          nextDragonDamageTime = time + dragonDamageSeconds;
+        }
+      }
+
+      function findDragonInView() {
+        raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+        const hits = raycaster.intersectObjects(dragonParts, false);
+
+        for (const hit of hits) {
+          const hitDragonRoot = hit.object.userData.dragonRoot;
+          if (hitDragonRoot && hit.distance <= dragonHitReach && hitDragonRoot.parent !== null) {
+            return hitDragonRoot;
+          }
+        }
+
+        return null;
+      }
+
+      function hitDragon(time) {
+        dragonHealth = Math.max(0, dragonHealth - 1);
+        dragonHitFlash = 0.18;
+        nextDragonHitTime = time + dragonHitSeconds;
+        playPickaxeHit();
+        updateDragonBar();
+
+        if (dragonHealth > 0) {
+          showMessage(`Round Dragon hit! ${dragonHealth} hearts left.`);
+          return;
+        }
+
+        defeatDragon();
+      }
+
+      function defeatDragon() {
+        if (dragonDefeated) {
+          return;
+        }
+
+        dragonAlive = false;
+        dragonDefeated = true;
+        canFly = true;
+        diamondCount += 1;
+        diamondPickaxeCount += 2;
+        dragonMeatCount += 3;
+        updatePlayerHud();
+        updateInventoryHud();
+        updateDragonBar();
+        showMessage("Round Dragon defeated! You got diamond, two diamond pickaxes, dragon meat, and flying!");
+      }
+
+      function damagePlayer() {
+        playerHearts = Math.max(0, playerHearts - 1);
+        updatePlayerHud();
+
+        if (playerHearts > 0) {
+          showMessage(`Dragon fire! ${playerHearts} hearts left.`);
+          return;
+        }
+
+        playerHearts = maxPlayerHearts;
+        player.position.set(0, playerHeight, 22);
+        velocity.set(0, 0, 0);
+        updatePlayerHud();
+        showMessage("The dragon got you. Back to the start!");
+      }
+
+      function eatDragonMeat() {
+        if (dragonMeatCount <= 0) {
+          showMessage("No dragon meat yet.");
+          return;
+        }
+
+        if (playerHearts >= maxPlayerHearts) {
+          showMessage("Hearts are already full.");
+          return;
+        }
+
+        dragonMeatCount -= 1;
+        playerHearts = Math.min(maxPlayerHearts, playerHearts + 2);
+        updatePlayerHud();
+        updateInventoryHud();
+        showMessage("Dragon meat eaten. Hearts restored!");
+      }
+
+      function updatePlayerHud() {
+        heartCountLabel.textContent = `${playerHearts}/${maxPlayerHearts}`;
+        flyingStateLabel.textContent = canFly ? "Yes" : "No";
+      }
+
+      function updateInventoryHud() {
+        crystalCountLabel.textContent = String(minedCrystalCount);
+        diamondCountLabel.textContent = String(diamondCount);
+        diamondPickaxeCountLabel.textContent = String(diamondPickaxeCount);
+        dragonMeatCountLabel.textContent = String(dragonMeatCount);
+      }
+
+      function updateDragonBar() {
+        const percent = Math.max(0, dragonHealth / dragonMaxHealth) * 100;
+        dragonFill.style.width = `${percent}%`;
+        dragonPanel.classList.toggle("hidden", dragonHealth <= 0);
       }
 
       function updateLava(time) {
@@ -1219,7 +1642,7 @@
       }
 
       function updatePickaxe(time, delta) {
-        const targetSwing = activeCrystal !== null && mouseDown ? 1 : 0;
+        const targetSwing = mouseDown && (activeCrystal !== null || dragonTargeted) ? 1 : 0;
         pickaxeSwing += (targetSwing - pickaxeSwing) * Math.min(delta * 10, 1);
 
         const hit = Math.abs(Math.sin(time * 13)) * pickaxeSwing;
