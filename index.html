@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Rundcraft</title>
+    <title>Roundcraft</title>
     <style>
       html,
       body {
@@ -177,17 +177,17 @@
   <body>
     <div id="startScreen">
       <div id="startBox">
-        <h1>Rundcraft</h1>
-        <p>Klicke ins Spiel.</p>
+        <h1>Roundcraft</h1>
+        <p>Click to play.</p>
       </div>
     </div>
 
     <div id="hud">
-      <div id="inventory">Inventar<br />Lava-Kristalle: <span id="crystalCount">0</span></div>
+      <div id="inventory">Inventory<br />Lava Crystals: <span id="crystalCount">0</span></div>
       <div id="message"></div>
       <div id="crosshair"></div>
       <div id="minePanel">
-        <div id="mineLabel">Lava-Kristall</div>
+        <div id="mineLabel">Lava Crystal</div>
         <div id="mineTrack"><div id="mineFill"></div></div>
       </div>
     </div>
@@ -196,7 +196,7 @@
       import * as THREE from "three";
 
       /*
-        Future Rundcraft ideas:
+        Future Roundcraft ideas:
         - Monsters get angry when the player hits them.
         - There is an Ender dragon.
         - Beating the Ender dragon gives dragon meat, a diamond pickaxe, and flying.
@@ -340,7 +340,7 @@
 
         if (!("requestPointerLock" in renderer.domElement)) {
           pointerLockFallback = true;
-          showMessage("Mausfang fehlt. Rechts ziehen zum Schauen.");
+          showMessage("Mouse lock is missing. Hold right mouse to look.");
           return;
         }
 
@@ -349,7 +349,7 @@
           pointerLockFallback = false;
         } catch (error) {
           pointerLockFallback = true;
-          showMessage("Im Testbrowser: rechts ziehen zum Schauen.");
+          showMessage("Test browser: hold right mouse to look.");
         }
       }
 
@@ -843,7 +843,7 @@
 
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextClass) {
-          showMessage("Dieser Browser kann keinen Ton machen.");
+          showMessage("This browser cannot play sound.");
           return;
         }
 
@@ -1169,7 +1169,7 @@
         removeCrystalParts(crystal);
         minedCrystalCount += 1;
         crystalCountLabel.textContent = String(minedCrystalCount);
-        showMessage("Lava-Kristall gesammelt!");
+        showMessage("Lava crystal collected!");
       }
 
       function removeCrystalParts(crystal) {
