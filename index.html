@@ -320,6 +320,14 @@
       const lavaPoolRadius = 4.8;
       const lavaFlowContactPadding = 0.9;
       const lavaContactVerticalPadding = 0.85;
+      const waterSurfaceY = 0.08;
+      const swimEyeHeight = 1.22;
+      const swimSpeed = 4.1;
+      const swimFloatSharpness = 10;
+      const waterSafeSeconds = 8;
+      const waterDamageSeconds = 1.1;
+      const lakeRadius = 12;
+      const riverHalfWidth = 2.2;
       const maxPlayerHearts = 5;
       const dragonMaxHealth = 12;
       const dragonHitReach = 34;
@@ -330,6 +338,15 @@
       const flyingVerticalSpeed = 8;
       const dragonDeadGroundY = 1.15;
       const volcanoCenter = new THREE.Vector3(0, 0, -34);
+      const lakeCenter = new THREE.Vector2(30, 8);
+      const riverPath = [
+        new THREE.Vector2(30, 8),
+        new THREE.Vector2(18, 5),
+        new THREE.Vector2(6, -4),
+        new THREE.Vector2(-8, -8),
+        new THREE.Vector2(-22, -6),
+        new THREE.Vector2(-38, -15)
+      ];
 
       const startScreen = requireElement("startScreen");
       const heartCountLabel = requireElement("heartCount");
@@ -412,6 +429,8 @@
       let dragonHitFlash = 0;
       let dragonFalling = false;
       let lavaTouchSeconds = 0;
+      let waterTouchSeconds = 0;
+      let waterDamageTickSeconds = 0;
       let audioContext = null;
       let audioMaster = null;
       let nextPickaxeHitTime = 0;
@@ -429,7 +448,9 @@
       let volcanoTunnelGroup = null;
 
       addLights();
+      addSkyDetails();
       addGround();
+      addWater();
       addVolcano();
       addCave();
       addTreasureChest();
@@ -574,6 +595,53 @@
         scene.add(lavaLight);
       }
 
+      function addSkyDetails() {
+        const sunMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(4.2, 32, 16),
+          new THREE.MeshBasicMaterial({ color: 0xffef89 })
+        );
+        sunMesh.position.set(55, 46, -76);
+        scene.add(sunMesh);
+
+        const cloudMaterial = new THREE.MeshStandardMaterial({
+          color: 0xf6fbff,
+          emissive: 0xc8e5ff,
+          emissiveIntensity: 0.12,
+          roughness: 0.75
+        });
+        const cloudPositions = [
+          [-38, 24, -58, 1.3],
+          [-7, 27, -72, 1.05],
+          [30, 22, -54, 1.18],
+          [46, 25, -21, 0.95]
+        ];
+
+        for (const [x, y, z, scale] of cloudPositions) {
+          scene.add(makeCloud(x, y, z, scale, cloudMaterial));
+        }
+      }
+
+      function makeCloud(x, y, z, scale, material) {
+        const cloud = new THREE.Group();
+        cloud.position.set(x, y, z);
+
+        const puffs = [
+          [-1.6, 0, 0, 1.18],
+          [-0.45, 0.28, 0.08, 1.38],
+          [0.95, 0.05, -0.05, 1.12],
+          [2.05, -0.04, 0.04, 0.92]
+        ];
+
+        for (const [px, py, pz, puffScale] of puffs) {
+          const puff = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 10), material);
+          puff.position.set(px * scale, py * scale, pz * scale);
+          puff.scale.set(1.8 * puffScale * scale, 0.72 * puffScale * scale, 0.82 * puffScale * scale);
+          cloud.add(puff);
+        }
+
+        return cloud;
+      }
+
       function addGround() {
         const groundMaterial = new THREE.MeshStandardMaterial({
           color: 0x6daf45,
@@ -594,6 +662,60 @@
         path.rotation.x = -Math.PI / 2;
         path.scale.set(1, 0.72, 1);
         scene.add(path);
+      }
+
+      function addWater() {
+        const waterMaterial = new THREE.MeshStandardMaterial({
+          color: 0x2f9fd3,
+          emissive: 0x0c5f8f,
+          emissiveIntensity: 0.22,
+          roughness: 0.42,
+          metalness: 0,
+          transparent: true,
+          opacity: 0.72,
+          side: THREE.DoubleSide
+        });
+
+        const lake = new THREE.Mesh(new THREE.CircleGeometry(lakeRadius, 72), waterMaterial);
+        lake.position.set(lakeCenter.x, waterSurfaceY, lakeCenter.y);
+        lake.rotation.x = -Math.PI / 2;
+        lake.scale.set(1.22, 0.82, 1);
+        lake.receiveShadow = true;
+        scene.add(lake);
+
+        const river = new THREE.Mesh(makeRiverGeometry(), waterMaterial);
+        river.position.y = waterSurfaceY + 0.01;
+        river.receiveShadow = true;
+        scene.add(river);
+      }
+
+      function makeRiverGeometry() {
+        const vertices = [];
+        const indices = [];
+
+        for (let index = 0; index < riverPath.length; index += 1) {
+          const point = riverPath[index];
+          const previous = riverPath[Math.max(0, index - 1)];
+          const next = riverPath[Math.min(riverPath.length - 1, index + 1)];
+          const direction = new THREE.Vector2(next.x - previous.x, next.y - previous.y).normalize();
+          const normal = new THREE.Vector2(-direction.y, direction.x);
+          vertices.push(point.x + normal.x * riverHalfWidth, 0, point.y + normal.y * riverHalfWidth);
+          vertices.push(point.x - normal.x * riverHalfWidth, 0, point.y - normal.y * riverHalfWidth);
+        }
+
+        for (let index = 0; index < riverPath.length - 1; index += 1) {
+          const leftTop = index * 2;
+          const rightTop = leftTop + 1;
+          const leftBottom = leftTop + 2;
+          const rightBottom = leftTop + 3;
+          indices.push(leftTop, leftBottom, rightTop, rightTop, leftBottom, rightBottom);
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+        geometry.setIndex(indices);
+        geometry.computeVertexNormals();
+        return geometry;
       }
 
       function addVolcano() {
@@ -1464,6 +1586,7 @@
         updateLook(delta);
         updatePlayer(delta);
         updateLavaDamage(delta);
+        updateWaterDamage(delta);
         updateMining(delta, time);
         updateLava(time, delta);
         updateDragon(time, delta);
@@ -1487,8 +1610,14 @@
           return;
         }
 
+        const swimming = isSwimming();
+
         if (canFly) {
           velocity.y = (Number(move.up) - Number(move.down)) * flyingVerticalSpeed;
+        } else if (swimming) {
+          const swimY = waterSurfaceY + swimEyeHeight;
+          velocity.y = 0;
+          player.position.y += (swimY - player.position.y) * Math.min(delta * swimFloatSharpness, 1);
         } else {
           velocity.y -= gravity * delta;
         }
@@ -1504,7 +1633,7 @@
           rightVector.crossVectors(forwardVector, player.up).normalize();
           desiredMove.addScaledVector(forwardVector, forwardInput);
           desiredMove.addScaledVector(rightVector, rightInput);
-          desiredMove.normalize().multiplyScalar(canFly ? flyingSpeed : walkSpeed);
+          desiredMove.normalize().multiplyScalar(swimming ? swimSpeed : canFly ? flyingSpeed : walkSpeed);
         }
 
         const movementMix = Math.min(delta * movementSharpness, 1);
@@ -1522,6 +1651,13 @@
         if (canFly) {
           const safeFlyingHeight = groundHeightAt(player.position.x, player.position.z) + playerHeight;
           player.position.y = THREE.MathUtils.clamp(player.position.y, safeFlyingHeight, 34);
+          canJump = false;
+          return;
+        }
+
+        if (isSwimming()) {
+          velocity.y = 0;
+          player.position.y = waterSurfaceY + swimEyeHeight;
           canJump = false;
           return;
         }
@@ -1608,6 +1744,10 @@
         return Math.abs(localX) <= volcanoTunnelHalfWidth && Math.abs(localZ) <= volcanoBaseRadius;
       }
 
+      function isSwimming() {
+        return !canFly && isInsideWater(player.position.x, player.position.z);
+      }
+
       function updateLavaDamage(delta) {
         if (!gameStarted || !isTouchingLava()) {
           lavaTouchSeconds = 0;
@@ -1655,6 +1795,61 @@
         }
 
         return false;
+      }
+
+      function updateWaterDamage(delta) {
+        if (!gameStarted || !isTouchingWater()) {
+          waterTouchSeconds = 0;
+          waterDamageTickSeconds = 0;
+          return;
+        }
+
+        waterTouchSeconds += delta;
+
+        if (waterTouchSeconds < waterSafeSeconds) {
+          return;
+        }
+
+        waterDamageTickSeconds += delta;
+
+        if (waterDamageTickSeconds < waterDamageSeconds) {
+          return;
+        }
+
+        waterDamageTickSeconds = 0;
+        damagePlayer("Too long in water!", "You stayed in water too long. Back to the start!");
+      }
+
+      function isInsideWater(x, z) {
+        const lakeDistance = Math.hypot((x - lakeCenter.x) / 1.22, (z - lakeCenter.y) / 0.82);
+
+        if (lakeDistance <= lakeRadius + playerRadius) {
+          return true;
+        }
+
+        return distanceToRiver(x, z) <= riverHalfWidth + playerRadius;
+      }
+
+      function isTouchingWater() {
+        return isInsideWater(player.position.x, player.position.z) && player.position.y <= waterSurfaceY + playerHeight + 0.45;
+      }
+
+      function distanceToRiver(x, z) {
+        let nearestDistance = Infinity;
+
+        for (let index = 0; index < riverPath.length - 1; index += 1) {
+          const start = riverPath[index];
+          const end = riverPath[index + 1];
+          const segmentX = end.x - start.x;
+          const segmentZ = end.y - start.y;
+          const segmentLengthSq = segmentX * segmentX + segmentZ * segmentZ;
+          const t = THREE.MathUtils.clamp(((x - start.x) * segmentX + (z - start.y) * segmentZ) / segmentLengthSq, 0, 1);
+          const closestX = start.x + segmentX * t;
+          const closestZ = start.y + segmentZ * t;
+          nearestDistance = Math.min(nearestDistance, Math.hypot(x - closestX, z - closestZ));
+        }
+
+        return nearestDistance;
       }
 
       function updateMining(delta, time) {
@@ -1935,6 +2130,8 @@
         player.position.set(0, playerHeight, 22);
         velocity.set(0, 0, 0);
         lavaTouchSeconds = 0;
+        waterTouchSeconds = 0;
+        waterDamageTickSeconds = 0;
         updatePlayerHud();
         showMessage(deathMessage);
       }
