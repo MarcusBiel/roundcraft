@@ -18,6 +18,7 @@ Then open http://localhost:8000 in your browser.
 - Hold left mouse button: mine lava crystals
 - Hold left mouse button on volcano rock: dig a tunnel through the volcano
 - Aim at the Round Dragon and hold left mouse button: fight the dragon
+- Lava hurts while you touch it. Stay in it too long and you go back to the start.
 - After defeating the dragon, Space flies up and Shift flies down
 - `E`: eat dragon meat when you have it
 

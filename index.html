@@ -316,6 +316,10 @@
       const pickaxeHitSeconds = 0.28;
       const lavaBubbleSoundMinSeconds = 0.36;
       const lavaBubbleSoundSpreadSeconds = 0.58;
+      const lavaDamageSeconds = 0.8;
+      const lavaPoolRadius = 4.8;
+      const lavaFlowContactPadding = 0.9;
+      const lavaContactVerticalPadding = 0.85;
       const maxPlayerHearts = 5;
       const dragonMaxHealth = 12;
       const dragonHitReach = 34;
@@ -405,6 +409,7 @@
       let nextDragonDamageTime = 0;
       let dragonTargeted = false;
       let dragonHitFlash = 0;
+      let lavaTouchSeconds = 0;
       let audioContext = null;
       let audioMaster = null;
       let nextPickaxeHitTime = 0;
@@ -1456,6 +1461,7 @@
 
         updateLook(delta);
         updatePlayer(delta);
+        updateLavaDamage(delta);
         updateMining(delta, time);
         updateLava(time, delta);
         updateDragon(time, delta);
@@ -1598,6 +1604,55 @@
         const localX = x - volcanoCenter.x;
         const localZ = z - volcanoCenter.z;
         return Math.abs(localX) <= volcanoTunnelHalfWidth && Math.abs(localZ) <= volcanoBaseRadius;
+      }
+
+      function updateLavaDamage(delta) {
+        if (!gameStarted || !isTouchingLava()) {
+          lavaTouchSeconds = 0;
+          return;
+        }
+
+        lavaTouchSeconds += delta;
+
+        if (lavaTouchSeconds < lavaDamageSeconds) {
+          return;
+        }
+
+        lavaTouchSeconds = 0;
+        damagePlayer("Lava burns!", "Lava got you. Back to the start!");
+      }
+
+      function isTouchingLava() {
+        const localX = player.position.x - volcanoCenter.x;
+        const localZ = player.position.z - volcanoCenter.z;
+        const playerFootY = player.position.y - playerHeight;
+        const playerHeadY = player.position.y + 0.15;
+        const distanceFromCrater = Math.hypot(localX, localZ);
+
+        if (
+          distanceFromCrater <= lavaPoolRadius + playerRadius &&
+          playerFootY <= volcanoHeight + lavaContactVerticalPadding &&
+          playerHeadY >= volcanoHeight - lavaContactVerticalPadding
+        ) {
+          return true;
+        }
+
+        for (let index = 0; index <= 24; index += 1) {
+          const t = index / 24;
+          const point = lavaFlowPoint(t);
+          const width = 1.75 + t * 1.4;
+          const horizontalDistance = Math.hypot(localX - point.x, localZ - point.z);
+
+          if (
+            horizontalDistance <= width / 2 + playerRadius + lavaFlowContactPadding &&
+            playerFootY <= point.y + lavaContactVerticalPadding &&
+            playerHeadY >= point.y - lavaContactVerticalPadding
+          ) {
+            return true;
+          }
+        }
+
+        return false;
       }
 
       function updateMining(delta, time) {
@@ -1803,7 +1858,7 @@
 
         const dragonDistance = player.position.distanceTo(dragon.position);
         if (dragonDistance <= dragonAttackRange) {
-          damagePlayer();
+          damagePlayer("Dragon fire!", "The dragon got you. Back to the start!");
           nextDragonDamageTime = time + dragonDamageSeconds;
         }
       }
@@ -1854,20 +1909,21 @@
         showMessage("Round Dragon defeated! You got diamond, two diamond pickaxes, dragon meat, and flying!");
       }
 
-      function damagePlayer() {
+      function damagePlayer(hitMessage, deathMessage) {
         playerHearts = Math.max(0, playerHearts - 1);
         updatePlayerHud();
 
         if (playerHearts > 0) {
-          showMessage(`Dragon fire! ${playerHearts} hearts left.`);
+          showMessage(`${hitMessage} ${playerHearts} hearts left.`);
           return;
         }
 
         playerHearts = maxPlayerHearts;
         player.position.set(0, playerHeight, 22);
         velocity.set(0, 0, 0);
+        lavaTouchSeconds = 0;
         updatePlayerHud();
-        showMessage("The dragon got you. Back to the start!");
+        showMessage(deathMessage);
       }
 
       function eatDragonMeat() {
