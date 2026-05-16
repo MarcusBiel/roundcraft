@@ -302,7 +302,15 @@
       const lookSharpness = 28;
       const crystalMiningSeconds = 10;
       const crystalReach = 5.2;
+      const volcanoDigSeconds = 6;
+      const volcanoDigReach = 6.5;
       const worldHalfSize = 92;
+      const playerRadius = 0.55;
+      const volcanoBaseRadius = 17;
+      const volcanoTopRadius = 5.4;
+      const volcanoHeight = 14;
+      const volcanoTunnelHalfWidth = 2.35;
+      const volcanoTunnelHalfHeight = 2.2;
       const pickaxeHitSeconds = 0.28;
       const lavaBubbleSoundMinSeconds = 0.36;
       const lavaBubbleSoundSpreadSeconds = 0.58;
@@ -326,6 +334,7 @@
       const dragonPanel = requireElement("dragonPanel");
       const dragonFill = requireElement("dragonFill");
       const minePanel = requireElement("minePanel");
+      const mineLabel = requireElement("mineLabel");
       const mineFill = requireElement("mineFill");
       const message = requireElement("message");
 
@@ -373,7 +382,10 @@
       let targetPitch = 0;
       let activeCrystal = null;
       let visibleCrystal = null;
+      let activeVolcanoRock = false;
+      let visibleVolcanoRock = false;
       let miningProgress = 0;
+      let volcanoTunnelOpen = false;
       let minedCrystalCount = 0;
       let messageTimer = 0;
       let pickaxeSwing = 0;
@@ -401,6 +413,9 @@
       const lavaSparks = [];
       const lavaDrops = [];
       const dragonParts = [];
+      const solidObstacles = [];
+      const volcanoRockParts = [];
+      let volcanoTunnelGroup = null;
 
       addLights();
       addGround();
@@ -587,6 +602,7 @@
         cone.castShadow = true;
         cone.receiveShadow = true;
         volcano.add(cone);
+        volcanoRockParts.push(cone);
 
         const rimMaterial = new THREE.MeshStandardMaterial({
           color: 0x2f201a,
@@ -597,6 +613,7 @@
         rim.rotation.x = Math.PI / 2;
         rim.castShadow = true;
         volcano.add(rim);
+        volcanoRockParts.push(rim);
 
         const lavaMaterial = makeLavaMaterial();
         const lavaPool = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, 0.26, 80), lavaMaterial);
@@ -632,6 +649,58 @@
         for (let index = 0; index < 18; index += 1) {
           lavaDrops.push(makeLavaDrop(index, volcano));
         }
+
+        volcanoTunnelGroup = makeVolcanoTunnel();
+        volcanoTunnelGroup.visible = false;
+        volcano.add(volcanoTunnelGroup);
+      }
+
+      function makeVolcanoTunnel() {
+        const tunnel = new THREE.Group();
+
+        const darkMaterial = new THREE.MeshBasicMaterial({
+          color: 0x050607,
+          side: THREE.DoubleSide
+        });
+        const emberMaterial = new THREE.MeshStandardMaterial({
+          color: 0xff7a1a,
+          emissive: 0xff3a0b,
+          emissiveIntensity: 1,
+          roughness: 0.4
+        });
+
+        const entranceShape = new THREE.Shape();
+        entranceShape.moveTo(-volcanoTunnelHalfWidth, 0);
+        entranceShape.lineTo(-volcanoTunnelHalfWidth, volcanoTunnelHalfHeight * 0.55);
+        entranceShape.quadraticCurveTo(0, volcanoTunnelHalfHeight * 1.35, volcanoTunnelHalfWidth, volcanoTunnelHalfHeight * 0.55);
+        entranceShape.lineTo(volcanoTunnelHalfWidth, 0);
+        entranceShape.lineTo(-volcanoTunnelHalfWidth, 0);
+
+        const frontEntrance = new THREE.Mesh(new THREE.ShapeGeometry(entranceShape), darkMaterial);
+        frontEntrance.position.set(0, 0.08, volcanoBaseRadius + 0.03);
+        tunnel.add(frontEntrance);
+
+        const backEntrance = new THREE.Mesh(new THREE.ShapeGeometry(entranceShape), darkMaterial);
+        backEntrance.position.set(0, 0.08, -volcanoBaseRadius - 0.03);
+        backEntrance.rotation.y = Math.PI;
+        tunnel.add(backEntrance);
+
+        const tunnelFloor = new THREE.Mesh(new THREE.PlaneGeometry(volcanoTunnelHalfWidth * 1.9, volcanoBaseRadius * 2), darkMaterial);
+        tunnelFloor.position.set(0, 0.055, 0);
+        tunnelFloor.rotation.x = -Math.PI / 2;
+        tunnel.add(tunnelFloor);
+
+        for (let index = 0; index < 7; index += 1) {
+          const ember = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), emberMaterial);
+          ember.position.set(
+            (seededWave(index + 31) - 0.5) * volcanoTunnelHalfWidth * 1.4,
+            0.18,
+            -volcanoBaseRadius + 4 + index * 4
+          );
+          tunnel.add(ember);
+        }
+
+        return tunnel;
       }
 
       function makeLavaMaterial() {
@@ -790,6 +859,15 @@
           stone.castShadow = true;
           cave.add(stone);
         }
+
+        addSolidObstacle({
+          name: "Cave",
+          x: -17,
+          z: -9,
+          radius: 5.5,
+          minY: 0,
+          maxY: 4.9
+        });
       }
 
       function addTreasureChest() {
@@ -841,6 +919,15 @@
         const glow = new THREE.PointLight(0xffc95c, 2.6, 7, 2.2);
         glow.position.set(0, 1.1, 0.3);
         chest.add(glow);
+
+        addSolidObstacle({
+          name: "Treasure Chest",
+          x: chest.position.x,
+          z: chest.position.z,
+          radius: 1.55,
+          minY: 0,
+          maxY: 1.8
+        });
       }
 
       function addDragon() {
@@ -1041,7 +1128,21 @@
         crystal.add(base);
         crystalParts.push(base);
 
+        addSolidObstacle({
+          name: crystal.name,
+          x: position.x,
+          z: position.z,
+          radius: 1.08,
+          minY: 0,
+          maxY: 2.9,
+          isActive: () => crystal.parent !== null
+        });
+
         return crystal;
+      }
+
+      function addSolidObstacle(obstacle) {
+        solidObstacles.push(obstacle);
       }
 
       function addPickaxe() {
@@ -1367,32 +1468,120 @@
 
         player.position.x = THREE.MathUtils.clamp(player.position.x, -worldHalfSize, worldHalfSize);
         player.position.z = THREE.MathUtils.clamp(player.position.z, -worldHalfSize, worldHalfSize);
+        applySolidObstacleResistance();
 
         if (canFly) {
-          player.position.y = THREE.MathUtils.clamp(player.position.y, playerHeight, 34);
+          const safeFlyingHeight = groundHeightAt(player.position.x, player.position.z) + playerHeight;
+          player.position.y = THREE.MathUtils.clamp(player.position.y, safeFlyingHeight, 34);
           canJump = false;
           return;
         }
 
-        if (player.position.y < playerHeight) {
+        const standingHeight = groundHeightAt(player.position.x, player.position.z) + playerHeight;
+
+        if (player.position.y < standingHeight) {
           velocity.y = 0;
-          player.position.y = playerHeight;
+          player.position.y = standingHeight;
           canJump = true;
         }
       }
 
+      function applySolidObstacleResistance() {
+        const playerFootY = player.position.y - playerHeight;
+        const playerHeadY = player.position.y + 0.15;
+
+        for (const obstacle of solidObstacles) {
+          if (obstacle.isActive && !obstacle.isActive()) {
+            continue;
+          }
+          if (playerHeadY < obstacle.minY || playerFootY > obstacle.maxY) {
+            continue;
+          }
+
+          pushPlayerOutOfCircle(obstacle.x, obstacle.z, obstacle.radius + playerRadius);
+        }
+
+        if (dragonAlive && Math.abs(player.position.y - dragon.position.y) < 2.8) {
+          pushPlayerOutOfCircle(dragon.position.x, dragon.position.z, 3.2);
+        }
+      }
+
+      function pushPlayerOutOfCircle(centerX, centerZ, minimumDistance) {
+        const offsetX = player.position.x - centerX;
+        const offsetZ = player.position.z - centerZ;
+        const distance = Math.hypot(offsetX, offsetZ);
+
+        if (distance >= minimumDistance) {
+          return;
+        }
+
+        const normalX = distance > 0 ? offsetX / distance : 1;
+        const normalZ = distance > 0 ? offsetZ / distance : 0;
+        const pushDistance = minimumDistance - distance;
+        player.position.x += normalX * pushDistance;
+        player.position.z += normalZ * pushDistance;
+
+        const velocityIntoObstacle = velocity.x * normalX + velocity.z * normalZ;
+        if (velocityIntoObstacle < 0) {
+          velocity.x -= velocityIntoObstacle * normalX;
+          velocity.z -= velocityIntoObstacle * normalZ;
+        }
+      }
+
+      function groundHeightAt(x, z) {
+        if (isInsideOpenVolcanoTunnel(x, z)) {
+          return 0;
+        }
+
+        const localX = x - volcanoCenter.x;
+        const localZ = z - volcanoCenter.z;
+        const distanceFromCenter = Math.hypot(localX, localZ);
+
+        if (distanceFromCenter > volcanoBaseRadius) {
+          return 0;
+        }
+
+        if (distanceFromCenter <= volcanoTopRadius) {
+          return volcanoHeight;
+        }
+
+        const slope = (volcanoBaseRadius - distanceFromCenter) / (volcanoBaseRadius - volcanoTopRadius);
+        return slope * volcanoHeight;
+      }
+
+      function isInsideOpenVolcanoTunnel(x, z) {
+        if (!volcanoTunnelOpen) {
+          return false;
+        }
+
+        const localX = x - volcanoCenter.x;
+        const localZ = z - volcanoCenter.z;
+        return Math.abs(localX) <= volcanoTunnelHalfWidth && Math.abs(localZ) <= volcanoBaseRadius;
+      }
+
       function updateMining(delta, time) {
         visibleCrystal = findCrystalInView();
+        visibleVolcanoRock = !volcanoTunnelOpen && findVolcanoRockInView();
 
-        if (!mouseDown || visibleCrystal === null) {
+        if (!mouseDown || (visibleCrystal === null && !visibleVolcanoRock)) {
           activeCrystal = null;
+          activeVolcanoRock = false;
           miningProgress = 0;
           updateMiningBar();
           return;
         }
 
-        if (activeCrystal !== visibleCrystal) {
-          activeCrystal = visibleCrystal;
+        if (visibleCrystal !== null) {
+          mineLabel.textContent = "Lava Crystal";
+          if (activeCrystal !== visibleCrystal) {
+            activeCrystal = visibleCrystal;
+            activeVolcanoRock = false;
+            miningProgress = 0;
+          }
+        } else if (!activeVolcanoRock) {
+          mineLabel.textContent = "Volcano Tunnel";
+          activeCrystal = null;
+          activeVolcanoRock = true;
           miningProgress = 0;
         }
 
@@ -1400,10 +1589,19 @@
         updateMiningBar();
         playMiningSound(time);
 
-        if (miningProgress >= crystalMiningSeconds) {
+        if (activeCrystal !== null && miningProgress >= crystalMiningSeconds) {
           collectCrystal(activeCrystal);
           activeCrystal = null;
           visibleCrystal = null;
+          miningProgress = 0;
+          updateMiningBar();
+          return;
+        }
+
+        if (activeVolcanoRock && miningProgress >= volcanoDigSeconds) {
+          openVolcanoTunnel();
+          activeVolcanoRock = false;
+          visibleVolcanoRock = false;
           miningProgress = 0;
           updateMiningBar();
         }
@@ -1432,10 +1630,24 @@
         return null;
       }
 
+      function findVolcanoRockInView() {
+        raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+        const hits = raycaster.intersectObjects(volcanoRockParts, false);
+
+        for (const hit of hits) {
+          if (hit.distance <= volcanoDigReach) {
+            return true;
+          }
+        }
+
+        return false;
+      }
+
       function updateMiningBar() {
-        const active = activeCrystal !== null && mouseDown;
+        const active = mouseDown && (activeCrystal !== null || activeVolcanoRock);
         minePanel.classList.toggle("visible", active);
-        const percent = Math.min(miningProgress / crystalMiningSeconds, 1) * 100;
+        const neededSeconds = activeVolcanoRock ? volcanoDigSeconds : crystalMiningSeconds;
+        const percent = Math.min(miningProgress / neededSeconds, 1) * 100;
         mineFill.style.width = `${percent}%`;
       }
 
@@ -1457,6 +1669,16 @@
             crystalParts.splice(index, 1);
           }
         }
+      }
+
+      function openVolcanoTunnel() {
+        volcanoTunnelOpen = true;
+        if (volcanoTunnelGroup === null) {
+          throw new Error("Volcano tunnel was not created.");
+        }
+
+        volcanoTunnelGroup.visible = true;
+        showMessage("Volcano tunnel opened!");
       }
 
       function updateDragon(time, delta) {
@@ -1642,7 +1864,7 @@
       }
 
       function updatePickaxe(time, delta) {
-        const targetSwing = mouseDown && (activeCrystal !== null || dragonTargeted) ? 1 : 0;
+        const targetSwing = mouseDown && (activeCrystal !== null || activeVolcanoRock || dragonTargeted) ? 1 : 0;
         pickaxeSwing += (targetSwing - pickaxeSwing) * Math.min(delta * 10, 1);
 
         const hit = Math.abs(Math.sin(time * 13)) * pickaxeSwing;
