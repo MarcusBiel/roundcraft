@@ -301,9 +301,11 @@
       const mouseSensitivity = 0.00165;
       const lookSharpness = 28;
       const crystalMiningSeconds = 10;
-      const crystalReach = 5.2;
+      const crystalReach = 7;
       const volcanoDigSeconds = 6;
-      const volcanoDigReach = 6.5;
+      const volcanoDigReach = 10;
+      const crystalAimDot = 0.96;
+      const volcanoAimDot = 0.5;
       const worldHalfSize = 92;
       const playerRadius = 0.55;
       const volcanoBaseRadius = 17;
@@ -360,6 +362,8 @@
       const forwardVector = new THREE.Vector3();
       const rightVector = new THREE.Vector3();
       const desiredMove = new THREE.Vector3();
+      const aimDirection = new THREE.Vector3();
+      const aimTarget = new THREE.Vector3();
       const move = {
         forward: false,
         backward: false,
@@ -1147,36 +1151,73 @@
 
       function addPickaxe() {
         const pickaxeGroup = new THREE.Group();
-        pickaxeGroup.position.set(0.46, -0.44, -0.78);
-        pickaxeGroup.rotation.set(-0.24, -0.42, -0.28);
+        pickaxeGroup.position.set(0.68, -0.62, -1.25);
+        pickaxeGroup.rotation.set(-0.34, -0.5, -0.34);
+        pickaxeGroup.scale.setScalar(0.72);
 
-        const handle = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.035, 0.045, 0.92, 10),
-          new THREE.MeshStandardMaterial({ color: 0x6d4124, roughness: 0.72 })
-        );
-        handle.rotation.z = -0.32;
-        handle.position.y = -0.12;
-        pickaxeGroup.add(handle);
-
-        const headMaterial = new THREE.MeshStandardMaterial({
-          color: 0xa8b1ba,
-          roughness: 0.36,
-          metalness: 0.35
+        const handleMaterial = new THREE.MeshStandardMaterial({
+          color: 0x7b4a25,
+          roughness: 0.68
         });
-        const head = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.72, 10), headMaterial);
-        head.rotation.z = Math.PI / 2;
-        head.position.y = 0.35;
-        pickaxeGroup.add(head);
+        const gripMaterial = new THREE.MeshStandardMaterial({
+          color: 0x2a1710,
+          roughness: 0.82
+        });
+        const headMaterial = new THREE.MeshStandardMaterial({
+          color: 0xc8d4dd,
+          roughness: 0.24,
+          metalness: 0.55
+        });
+        const edgeMaterial = new THREE.MeshStandardMaterial({
+          color: 0xe7f7ff,
+          roughness: 0.18,
+          metalness: 0.65
+        });
 
-        const pointLeft = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.22, 10), headMaterial);
-        pointLeft.rotation.z = Math.PI / 2;
-        pointLeft.position.set(-0.46, 0.35, 0);
-        pickaxeGroup.add(pointLeft);
+        const handleGroup = new THREE.Group();
+        handleGroup.rotation.z = -0.34;
+        handleGroup.position.y = -0.14;
+        const handle = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.045, 0.058, 1.22, 12),
+          handleMaterial
+        );
+        handleGroup.add(handle);
 
-        const pointRight = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.22, 10), headMaterial);
-        pointRight.rotation.z = -Math.PI / 2;
-        pointRight.position.set(0.46, 0.35, 0);
-        pickaxeGroup.add(pointRight);
+        for (const y of [-0.44, -0.16, 0.14]) {
+          const band = new THREE.Mesh(new THREE.CylinderGeometry(0.061, 0.061, 0.055, 12), gripMaterial);
+          band.position.y = y;
+          handleGroup.add(band);
+        }
+        pickaxeGroup.add(handleGroup);
+
+        const headGroup = new THREE.Group();
+        headGroup.position.set(0, 0.43, 0);
+
+        const socket = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), headMaterial);
+        socket.castShadow = true;
+        headGroup.add(socket);
+
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.13, 0.16), headMaterial);
+        head.castShadow = true;
+        headGroup.add(head);
+
+        const leftPoint = new THREE.Mesh(new THREE.ConeGeometry(0.105, 0.32, 14), edgeMaterial);
+        leftPoint.rotation.z = Math.PI / 2;
+        leftPoint.position.x = -0.53;
+        leftPoint.castShadow = true;
+        headGroup.add(leftPoint);
+
+        const rightBlade = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.18, 0.13), edgeMaterial);
+        rightBlade.position.x = 0.49;
+        rightBlade.rotation.z = -0.4;
+        rightBlade.castShadow = true;
+        headGroup.add(rightBlade);
+
+        const topShine = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.025, 0.175), edgeMaterial);
+        topShine.position.set(0.02, 0.074, 0.012);
+        headGroup.add(topShine);
+
+        pickaxeGroup.add(headGroup);
 
         camera.add(pickaxeGroup);
         return pickaxeGroup;
@@ -1627,6 +1668,35 @@
           }
         }
 
+        player.getWorldDirection(aimDirection);
+        let bestCrystal = null;
+        let bestAim = crystalAimDot;
+
+        for (const crystal of crystals) {
+          if (crystal.parent === null) {
+            continue;
+          }
+
+          aimTarget.copy(crystal.position);
+          aimTarget.y += 1.2;
+          aimTarget.sub(player.position);
+          const distance = aimTarget.length();
+
+          if (distance > crystalReach) {
+            continue;
+          }
+
+          const aim = aimDirection.dot(aimTarget.normalize());
+          if (aim > bestAim) {
+            bestAim = aim;
+            bestCrystal = crystal;
+          }
+        }
+
+        if (bestCrystal !== null) {
+          return bestCrystal;
+        }
+
         return null;
       }
 
@@ -1640,7 +1710,18 @@
           }
         }
 
-        return false;
+        const localX = player.position.x - volcanoCenter.x;
+        const localZ = player.position.z - volcanoCenter.z;
+        const distanceFromVolcano = Math.hypot(localX, localZ);
+
+        if (distanceFromVolcano > volcanoBaseRadius + 4 || distanceFromVolcano < volcanoTopRadius - 0.8) {
+          return false;
+        }
+
+        player.getWorldDirection(aimDirection);
+        aimTarget.set(volcanoCenter.x, Math.max(2.4, player.position.y - 0.4), volcanoCenter.z);
+        aimTarget.sub(player.position);
+        return aimDirection.dot(aimTarget.normalize()) > volcanoAimDot;
       }
 
       function updateMiningBar() {
@@ -1864,14 +1945,15 @@
       }
 
       function updatePickaxe(time, delta) {
-        const targetSwing = mouseDown && (activeCrystal !== null || activeVolcanoRock || dragonTargeted) ? 1 : 0;
+        const targetSwing = mouseDown && gameStarted ? 1 : 0;
         pickaxeSwing += (targetSwing - pickaxeSwing) * Math.min(delta * 10, 1);
 
-        const hit = Math.abs(Math.sin(time * 13)) * pickaxeSwing;
-        pickaxe.rotation.x = -0.24 - hit * 0.48;
-        pickaxe.rotation.y = -0.42 + hit * 0.16;
-        pickaxe.rotation.z = -0.28 - hit * 0.12;
-        pickaxe.position.y = -0.44 + hit * 0.08;
+        const hit = Math.abs(Math.sin(time * 14)) * pickaxeSwing;
+        pickaxe.rotation.x = -0.34 - hit * 0.58;
+        pickaxe.rotation.y = -0.5 + hit * 0.18;
+        pickaxe.rotation.z = -0.34 - hit * 0.16;
+        pickaxe.position.y = -0.62 + hit * 0.1;
+        pickaxe.position.z = -1.25 + hit * 0.08;
       }
 
       function updateMessage(delta) {
