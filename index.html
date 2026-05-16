@@ -260,7 +260,8 @@
     <div id="hud">
       <div id="playerStatus">
         Hearts: <span id="heartCount">5</span><br />
-        Flying: <span id="flyingState">No</span>
+        Flying: <span id="flyingState">No</span><br />
+        Tool: <span id="toolState">Pickaxe</span>
       </div>
       <div id="inventory">
         Inventory<br />
@@ -316,24 +317,28 @@
       const pickaxeHitSeconds = 0.28;
       const lavaBubbleSoundMinSeconds = 0.36;
       const lavaBubbleSoundSpreadSeconds = 0.58;
-      const lavaDamageSeconds = 0.8;
-      const lavaPoolRadius = 4.8;
-      const lavaFlowContactPadding = 0.9;
-      const lavaContactVerticalPadding = 0.85;
+      const toolPickaxe = "Pickaxe";
+      const toolBow = "Bow";
+      const arrowSpeed = 24;
+      const arrowLifeSeconds = 4.2;
+      const arrowShotCooldownSeconds = 0.48;
+      const arrowHitPadding = 0.45;
       const waterSurfaceY = 0.08;
       const swimEyeHeight = 1.22;
       const swimSpeed = 4.1;
       const swimFloatSharpness = 10;
-      const waterSafeSeconds = 8;
-      const waterDamageSeconds = 1.1;
       const lakeRadius = 12;
       const riverHalfWidth = 2.2;
       const maxPlayerHearts = 5;
       const dragonMaxHealth = 12;
-      const dragonHitReach = 34;
-      const dragonAttackRange = 20;
-      const dragonHitSeconds = 0.38;
-      const dragonDamageSeconds = 1.6;
+      const dragonFireRange = 38;
+      const dragonFireCooldownSeconds = 1.25;
+      const dragonFireSpeed = 10.5;
+      const dragonFireLifeSeconds = 4.2;
+      const dragonFireHitRadius = 1.25;
+      const dragonBreathFlashSeconds = 0.48;
+      const dragonFireMouthX = 4.25;
+      const dragonFireTargetLowering = 0.55;
       const flyingSpeed = 10;
       const flyingVerticalSpeed = 8;
       const dragonDeadGroundY = 1.15;
@@ -351,6 +356,7 @@
       const startScreen = requireElement("startScreen");
       const heartCountLabel = requireElement("heartCount");
       const flyingStateLabel = requireElement("flyingState");
+      const toolStateLabel = requireElement("toolState");
       const crystalCountLabel = requireElement("crystalCount");
       const diamondCountLabel = requireElement("diamondCount");
       const diamondPickaxeCountLabel = requireElement("diamondPickaxeCount");
@@ -423,28 +429,37 @@
       let diamondCount = 0;
       let diamondPickaxeCount = 0;
       let dragonMeatCount = 0;
-      let nextDragonHitTime = 0;
-      let nextDragonDamageTime = 0;
-      let dragonTargeted = false;
+      let nextDragonFireTime = 0;
       let dragonHitFlash = 0;
       let dragonFalling = false;
-      let lavaTouchSeconds = 0;
-      let waterTouchSeconds = 0;
-      let waterDamageTickSeconds = 0;
+      let dragonBreathGlowSeconds = 0;
+      let activeTool = toolPickaxe;
+      let nextArrowShotTime = 0;
+      let bowKick = 0;
       let audioContext = null;
       let audioMaster = null;
       let nextPickaxeHitTime = 0;
       let nextLavaBubbleSoundTime = 0;
 
       const raycaster = new THREE.Raycaster();
+      const arrowRaycaster = new THREE.Raycaster();
       const crystals = [];
       const crystalParts = [];
       const lavaBubbles = [];
       const lavaSparks = [];
       const lavaDrops = [];
       const dragonParts = [];
+      const dragonFireballs = [];
+      const playerArrows = [];
       const solidObstacles = [];
       const volcanoRockParts = [];
+      const dragonMouthPosition = new THREE.Vector3();
+      const dragonFireDirection = new THREE.Vector3();
+      const dragonFireTarget = new THREE.Vector3();
+      const dragonFacingDirection = new THREE.Vector3();
+      const arrowStartPosition = new THREE.Vector3();
+      const arrowDirection = new THREE.Vector3();
+      const arrowPreviousPosition = new THREE.Vector3();
       let volcanoTunnelGroup = null;
 
       addLights();
@@ -457,6 +472,8 @@
       addCrystals();
       const dragon = addDragon();
       const pickaxe = addPickaxe();
+      const bow = addBow();
+      updateToolVisibility();
       updatePlayerHud();
       updateInventoryHud();
       updateDragonBar();
@@ -470,6 +487,9 @@
       document.addEventListener("mousedown", (event) => {
         if (event.button === 0 && gameStarted) {
           mouseDown = true;
+          if (activeTool === toolBow) {
+            shootArrow(clock.elapsedTime);
+          }
         }
         if (event.button === 2 && gameStarted && !pointerLocked) {
           dragLooking = true;
@@ -1096,9 +1116,9 @@
           roughness: 0.2
         });
         const fireMaterial = new THREE.MeshBasicMaterial({
-          color: 0xff6d24,
+          color: 0xff8a24,
           transparent: true,
-          opacity: 0.55,
+          opacity: 0.72,
           side: THREE.DoubleSide
         });
 
@@ -1151,11 +1171,11 @@
           dragonGroup.add(eye);
         }
 
-        const breath = new THREE.Mesh(new THREE.ConeGeometry(0.42, 2.8, 18, 1, true), fireMaterial);
+        const breath = new THREE.Mesh(new THREE.ConeGeometry(0.72, 4.6, 22, 1, true), fireMaterial);
         breath.name = "DragonBreath";
-        breath.position.set(4.7, 0.05, 0);
+        breath.position.set(5.25, 0.05, 0);
         breath.rotation.z = -Math.PI / 2;
-        breath.visible = true;
+        breath.visible = false;
         dragonGroup.add(breath);
         dragonGroup.userData.breath = breath;
 
@@ -1184,6 +1204,54 @@
         part.userData.dragonRoot = dragonGroup;
         dragonGroup.add(part);
         dragonParts.push(part);
+      }
+
+      function makeDragonFireball(position, direction) {
+        const fireball = new THREE.Group();
+        fireball.name = "DragonFireball";
+        fireball.position.copy(position);
+        fireball.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), direction);
+
+        const coreMaterial = new THREE.MeshBasicMaterial({ color: 0xfff19a });
+        const glowMaterial = new THREE.MeshBasicMaterial({
+          color: 0xff5a15,
+          transparent: true,
+          opacity: 0.5
+        });
+        const smokeMaterial = new THREE.MeshBasicMaterial({
+          color: 0x7d2415,
+          transparent: true,
+          opacity: 0.32
+        });
+
+        const core = new THREE.Mesh(new THREE.SphereGeometry(0.52, 16, 12), coreMaterial);
+        fireball.add(core);
+
+        const glow = new THREE.Mesh(new THREE.SphereGeometry(1.05, 18, 12), glowMaterial);
+        fireball.add(glow);
+
+        const trailPositions = [
+          [-0.74, 0, 0, 0.48],
+          [-1.15, 0.06, 0.08, 0.34],
+          [-1.52, -0.04, -0.06, 0.22]
+        ];
+
+        for (const [x, y, z, scale] of trailPositions) {
+          const trail = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), smokeMaterial);
+          trail.position.set(x, y, z);
+          trail.scale.set(scale * 1.45, scale * 0.8, scale * 0.8);
+          fireball.add(trail);
+        }
+
+        const light = new THREE.PointLight(0xff6a1a, 4.4, 10, 2.1);
+        fireball.add(light);
+        scene.add(fireball);
+
+        return {
+          mesh: fireball,
+          direction: direction.clone(),
+          ageSeconds: 0
+        };
       }
 
       function addCrystals() {
@@ -1352,6 +1420,146 @@
         return pickaxeGroup;
       }
 
+      function addBow() {
+        const bowGroup = new THREE.Group();
+        bowGroup.position.set(0.64, -0.5, -1.18);
+        bowGroup.rotation.set(-0.08, -0.38, 0.12);
+        bowGroup.scale.setScalar(0.7);
+
+        const woodMaterial = new THREE.MeshStandardMaterial({
+          color: 0x8a4f25,
+          roughness: 0.72
+        });
+        const stringMaterial = new THREE.MeshStandardMaterial({
+          color: 0xf4ead2,
+          roughness: 0.5
+        });
+        const arrowWoodMaterial = new THREE.MeshStandardMaterial({
+          color: 0xc49a5d,
+          roughness: 0.6
+        });
+        const arrowTipMaterial = new THREE.MeshStandardMaterial({
+          color: 0xd6e1e8,
+          roughness: 0.25,
+          metalness: 0.5
+        });
+        const featherMaterial = new THREE.MeshStandardMaterial({
+          color: 0xfff3b0,
+          roughness: 0.46
+        });
+
+        const bowCurve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(0, -0.84, 0),
+          new THREE.Vector3(-0.28, -0.25, 0),
+          new THREE.Vector3(-0.26, 0.25, 0),
+          new THREE.Vector3(0, 0.84, 0)
+        ]);
+        const bowBody = new THREE.Mesh(new THREE.TubeGeometry(bowCurve, 24, 0.035, 8), woodMaterial);
+        bowGroup.add(bowBody);
+
+        const string = makeBowString(stringMaterial, 0.14);
+        bowGroup.add(string);
+        bowGroup.userData.string = string;
+
+        const heldArrow = new THREE.Group();
+        const heldShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 1.24, 8), arrowWoodMaterial);
+        heldShaft.rotation.x = Math.PI / 2;
+        heldShaft.position.z = -0.22;
+        heldArrow.add(heldShaft);
+
+        const heldTip = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.22, 10), arrowTipMaterial);
+        heldTip.rotation.x = -Math.PI / 2;
+        heldTip.position.z = -0.94;
+        heldArrow.add(heldTip);
+
+        for (const side of [-1, 1]) {
+          const feather = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.035, 0.26), featherMaterial);
+          feather.position.set(side * 0.065, 0, 0.4);
+          feather.rotation.z = side * 0.45;
+          heldArrow.add(feather);
+        }
+
+        heldArrow.position.set(0.18, 0, -0.16);
+        bowGroup.add(heldArrow);
+        bowGroup.userData.heldArrow = heldArrow;
+
+        camera.add(bowGroup);
+        return bowGroup;
+      }
+
+      function makeBowString(material, centerPull) {
+        const string = new THREE.Group();
+        const top = new THREE.Vector3(0, 0.84, 0.02);
+        const middle = new THREE.Vector3(centerPull, 0, 0.02);
+        const bottom = new THREE.Vector3(0, -0.84, 0.02);
+        string.add(makeBowStringSegment(top, middle, material));
+        string.add(makeBowStringSegment(middle, bottom, material));
+        return string;
+      }
+
+      function makeBowStringSegment(start, end, material) {
+        const length = start.distanceTo(end);
+        const segment = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, length, 8), material);
+        const direction = new THREE.Vector3().subVectors(end, start).normalize();
+        segment.position.copy(start).add(end).multiplyScalar(0.5);
+        segment.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+        return segment;
+      }
+
+      function makePlayerArrow(position, direction) {
+        const arrow = new THREE.Group();
+        arrow.name = "PlayerArrow";
+        arrow.position.copy(position);
+        arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), direction);
+
+        const shaftMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffd15a,
+          emissive: 0x6b3d00,
+          emissiveIntensity: 0.35,
+          roughness: 0.45
+        });
+        const tipMaterial = new THREE.MeshStandardMaterial({
+          color: 0xf4fbff,
+          roughness: 0.24,
+          metalness: 0.55
+        });
+        const featherMaterial = new THREE.MeshStandardMaterial({
+          color: 0xff5f4a,
+          emissive: 0x521000,
+          emissiveIntensity: 0.2,
+          roughness: 0.48
+        });
+
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.7, 10), shaftMaterial);
+        shaft.rotation.x = Math.PI / 2;
+        shaft.position.z = -0.14;
+        arrow.add(shaft);
+
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.34, 12), tipMaterial);
+        tip.rotation.x = -Math.PI / 2;
+        tip.position.z = -1.16;
+        arrow.add(tip);
+
+        for (const side of [-1, 1]) {
+          const feather = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.045, 0.42), featherMaterial);
+          feather.position.set(side * 0.12, 0, 0.62);
+          feather.rotation.z = side * 0.42;
+          arrow.add(feather);
+        }
+
+        const glow = new THREE.PointLight(0xffd15a, 1.4, 4.5, 2);
+        glow.position.z = -0.5;
+        arrow.add(glow);
+
+        scene.add(arrow);
+
+        return {
+          mesh: arrow,
+          direction: direction.clone(),
+          ageSeconds: 0
+        };
+      }
+
       function startAudio() {
         if (audioContext !== null) {
           audioContext.resume();
@@ -1480,6 +1688,83 @@
         bubble.stop(start + 0.24);
       }
 
+      function playDragonFireSound() {
+        if (audioContext === null || audioMaster === null) {
+          return;
+        }
+
+        const start = audioContext.currentTime;
+        const noiseBuffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * 0.22), audioContext.sampleRate);
+        const noiseData = noiseBuffer.getChannelData(0);
+
+        for (let index = 0; index < noiseData.length; index += 1) {
+          noiseData[index] = (Math.random() * 2 - 1) * (1 - index / noiseData.length);
+        }
+
+        const fireNoise = audioContext.createBufferSource();
+        fireNoise.buffer = noiseBuffer;
+
+        const fireFilter = audioContext.createBiquadFilter();
+        fireFilter.type = "bandpass";
+        fireFilter.frequency.setValueAtTime(720, start);
+        fireFilter.frequency.exponentialRampToValueAtTime(190, start + 0.22);
+
+        const fireGain = audioContext.createGain();
+        fireGain.gain.setValueAtTime(0.0001, start);
+        fireGain.gain.exponentialRampToValueAtTime(0.1, start + 0.025);
+        fireGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
+
+        fireNoise.connect(fireFilter);
+        fireFilter.connect(fireGain);
+        fireGain.connect(audioMaster);
+        fireNoise.start(start);
+        fireNoise.stop(start + 0.23);
+      }
+
+      function playBowShotSound() {
+        if (audioContext === null || audioMaster === null) {
+          return;
+        }
+
+        const start = audioContext.currentTime;
+        const twang = audioContext.createOscillator();
+        twang.type = "triangle";
+        twang.frequency.setValueAtTime(180, start);
+        twang.frequency.exponentialRampToValueAtTime(90, start + 0.12);
+
+        const twangGain = audioContext.createGain();
+        twangGain.gain.setValueAtTime(0.0001, start);
+        twangGain.gain.exponentialRampToValueAtTime(0.08, start + 0.012);
+        twangGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.14);
+
+        twang.connect(twangGain);
+        twangGain.connect(audioMaster);
+        twang.start(start);
+        twang.stop(start + 0.16);
+      }
+
+      function playArrowHitSound() {
+        if (audioContext === null || audioMaster === null) {
+          return;
+        }
+
+        const start = audioContext.currentTime;
+        const hit = audioContext.createOscillator();
+        hit.type = "square";
+        hit.frequency.setValueAtTime(520, start);
+        hit.frequency.exponentialRampToValueAtTime(180, start + 0.08);
+
+        const hitGain = audioContext.createGain();
+        hitGain.gain.setValueAtTime(0.0001, start);
+        hitGain.gain.exponentialRampToValueAtTime(0.075, start + 0.008);
+        hitGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.1);
+
+        hit.connect(hitGain);
+        hitGain.connect(audioMaster);
+        hit.start(start);
+        hit.stop(start + 0.12);
+      }
+
       function handleKeyDown(event) {
         if (isGameKey(event.code)) {
           event.preventDefault();
@@ -1518,6 +1803,9 @@
             break;
           case "KeyE":
             eatDragonMeat();
+            break;
+          case "KeyQ":
+            toggleTool();
             break;
           default:
             break;
@@ -1572,10 +1860,27 @@
           case "ShiftLeft":
           case "ShiftRight":
           case "KeyE":
+          case "KeyQ":
             return true;
           default:
             return false;
         }
+      }
+
+      function toggleTool() {
+        activeTool = activeTool === toolPickaxe ? toolBow : toolPickaxe;
+        activeCrystal = null;
+        activeVolcanoRock = false;
+        miningProgress = 0;
+        updateMiningBar();
+        updateToolVisibility();
+        updatePlayerHud();
+        showMessage(`${activeTool} ready.`);
+      }
+
+      function updateToolVisibility() {
+        pickaxe.visible = activeTool === toolPickaxe;
+        bow.visible = activeTool === toolBow;
       }
 
       function animate() {
@@ -1585,14 +1890,14 @@
 
         updateLook(delta);
         updatePlayer(delta);
-        updateLavaDamage(delta);
-        updateWaterDamage(delta);
         updateMining(delta, time);
         updateLava(time, delta);
         updateDragon(time, delta);
+        updatePlayerArrows(delta);
         updateDragonFight(time, delta);
         updateAudio(time);
         updatePickaxe(time, delta);
+        updateBow(delta);
         updateMessage(delta);
 
         renderer.render(scene, camera);
@@ -1748,78 +2053,6 @@
         return !canFly && isInsideWater(player.position.x, player.position.z);
       }
 
-      function updateLavaDamage(delta) {
-        if (!gameStarted || !isTouchingLava()) {
-          lavaTouchSeconds = 0;
-          return;
-        }
-
-        lavaTouchSeconds += delta;
-
-        if (lavaTouchSeconds < lavaDamageSeconds) {
-          return;
-        }
-
-        lavaTouchSeconds = 0;
-        damagePlayer("Lava burns!", "Lava got you. Back to the start!");
-      }
-
-      function isTouchingLava() {
-        const localX = player.position.x - volcanoCenter.x;
-        const localZ = player.position.z - volcanoCenter.z;
-        const playerFootY = player.position.y - playerHeight;
-        const playerHeadY = player.position.y + 0.15;
-        const distanceFromCrater = Math.hypot(localX, localZ);
-
-        if (
-          distanceFromCrater <= lavaPoolRadius + playerRadius &&
-          playerFootY <= volcanoHeight + lavaContactVerticalPadding &&
-          playerHeadY >= volcanoHeight - lavaContactVerticalPadding
-        ) {
-          return true;
-        }
-
-        for (let index = 0; index <= 24; index += 1) {
-          const t = index / 24;
-          const point = lavaFlowPoint(t);
-          const width = 1.75 + t * 1.4;
-          const horizontalDistance = Math.hypot(localX - point.x, localZ - point.z);
-
-          if (
-            horizontalDistance <= width / 2 + playerRadius + lavaFlowContactPadding &&
-            playerFootY <= point.y + lavaContactVerticalPadding &&
-            playerHeadY >= point.y - lavaContactVerticalPadding
-          ) {
-            return true;
-          }
-        }
-
-        return false;
-      }
-
-      function updateWaterDamage(delta) {
-        if (!gameStarted || !isTouchingWater()) {
-          waterTouchSeconds = 0;
-          waterDamageTickSeconds = 0;
-          return;
-        }
-
-        waterTouchSeconds += delta;
-
-        if (waterTouchSeconds < waterSafeSeconds) {
-          return;
-        }
-
-        waterDamageTickSeconds += delta;
-
-        if (waterDamageTickSeconds < waterDamageSeconds) {
-          return;
-        }
-
-        waterDamageTickSeconds = 0;
-        damagePlayer("Too long in water!", "You stayed in water too long. Back to the start!");
-      }
-
       function isInsideWater(x, z) {
         const lakeDistance = Math.hypot((x - lakeCenter.x) / 1.22, (z - lakeCenter.y) / 0.82);
 
@@ -1828,10 +2061,6 @@
         }
 
         return distanceToRiver(x, z) <= riverHalfWidth + playerRadius;
-      }
-
-      function isTouchingWater() {
-        return isInsideWater(player.position.x, player.position.z) && player.position.y <= waterSurfaceY + playerHeight + 0.45;
       }
 
       function distanceToRiver(x, z) {
@@ -1853,6 +2082,14 @@
       }
 
       function updateMining(delta, time) {
+        if (activeTool !== toolPickaxe) {
+          activeCrystal = null;
+          activeVolcanoRock = false;
+          miningProgress = 0;
+          updateMiningBar();
+          return;
+        }
+
         visibleCrystal = findCrystalInView();
         visibleVolcanoRock = !volcanoTunnelOpen && findVolcanoRockInView();
 
@@ -2024,6 +2261,7 @@
               dragonFalling = false;
             }
           }
+          dragon.updateMatrixWorld(true);
           return;
         }
 
@@ -2031,14 +2269,22 @@
         const x = Math.cos(orbitAngle) * 18;
         const z = -22 + Math.sin(orbitAngle) * 12;
         dragon.position.set(x, 10.8 + Math.sin(time * 1.35) * 1.2, z);
-        dragon.rotation.y = -orbitAngle;
+        dragonFacingDirection.set(player.position.x - dragon.position.x, 0, player.position.z - dragon.position.z);
+        if (dragonFacingDirection.lengthSq() > 0.0001) {
+          dragonFacingDirection.normalize();
+          dragon.rotation.y = Math.atan2(-dragonFacingDirection.z, dragonFacingDirection.x);
+        }
         dragon.rotation.z = Math.sin(time * 2.6) * 0.09;
 
         const wingFlap = Math.sin(time * 7.5) * 0.45;
         dragon.userData.leftWing.rotation.x = wingFlap;
         dragon.userData.rightWing.rotation.x = -wingFlap;
-        dragon.userData.breath.visible = Math.sin(time * 2.1) > -0.25;
-        dragon.userData.breath.scale.setScalar(0.8 + Math.max(0, Math.sin(time * 6.4)) * 0.3);
+
+        dragonBreathGlowSeconds = Math.max(0, dragonBreathGlowSeconds - delta);
+        dragon.userData.breath.visible = dragonBreathGlowSeconds > 0;
+        if (dragon.userData.breath.visible) {
+          dragon.userData.breath.scale.setScalar(0.92 + Math.max(0, Math.sin(time * 18)) * 0.24);
+        }
 
         if (dragonHitFlash > 0) {
           dragonHitFlash = Math.max(0, dragonHitFlash - delta);
@@ -2046,49 +2292,149 @@
         } else {
           dragon.scale.setScalar(1);
         }
+
+        dragon.updateMatrixWorld(true);
       }
 
-      function updateDragonFight(time) {
-        dragonTargeted = dragonAlive && findDragonInView() !== null;
+      function updateDragonFight(time, delta) {
+        updateDragonFireballs(delta);
 
-        if (dragonTargeted && mouseDown && time >= nextDragonHitTime) {
-          hitDragon(time);
-        }
-
-        if (!dragonAlive || !gameStarted || time < nextDragonDamageTime) {
+        if (!dragonAlive || !gameStarted || time < nextDragonFireTime) {
           return;
         }
 
         const dragonDistance = player.position.distanceTo(dragon.position);
-        if (dragonDistance <= dragonAttackRange) {
-          damagePlayer("Dragon fire!", "The dragon got you. Back to the start!");
-          nextDragonDamageTime = time + dragonDamageSeconds;
+        if (dragonDistance <= dragonFireRange) {
+          breatheDragonFire();
+          nextDragonFireTime = time + dragonFireCooldownSeconds;
         }
       }
 
-      function findDragonInView() {
-        raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-        const hits = raycaster.intersectObjects(dragonParts, false);
+      function breatheDragonFire() {
+        dragonMouthPosition.set(dragonFireMouthX, 0.05, 0);
+        dragon.localToWorld(dragonMouthPosition);
+
+        dragonFireTarget.copy(player.position);
+        dragonFireTarget.y -= dragonFireTargetLowering;
+        dragonFireDirection.copy(dragonFireTarget).sub(dragonMouthPosition);
+
+        if (dragonFireDirection.lengthSq() <= 0.0001) {
+          return;
+        }
+
+        dragonFireDirection.normalize();
+        dragonFireballs.push(makeDragonFireball(dragonMouthPosition, dragonFireDirection));
+        dragonBreathGlowSeconds = dragonBreathFlashSeconds;
+        playDragonFireSound();
+      }
+
+      function updateDragonFireballs(delta) {
+        for (let index = dragonFireballs.length - 1; index >= 0; index -= 1) {
+          const fireball = dragonFireballs[index];
+          fireball.ageSeconds += delta;
+          fireball.mesh.position.addScaledVector(fireball.direction, dragonFireSpeed * delta);
+          fireball.mesh.scale.setScalar(0.9 + Math.sin(fireball.ageSeconds * 22) * 0.1);
+
+          dragonFireTarget.copy(player.position);
+          dragonFireTarget.y -= dragonFireTargetLowering;
+
+          if (dragonAlive && gameStarted && fireball.mesh.position.distanceTo(dragonFireTarget) <= dragonFireHitRadius) {
+            removeDragonFireball(index);
+            damagePlayer("Dragon fire hit!", "The dragon fire got you. Back to the start!");
+            continue;
+          }
+
+          if (fireball.ageSeconds >= dragonFireLifeSeconds) {
+            removeDragonFireball(index);
+          }
+        }
+      }
+
+      function removeDragonFireball(index) {
+        const [fireball] = dragonFireballs.splice(index, 1);
+        scene.remove(fireball.mesh);
+      }
+
+      function clearDragonFireballs() {
+        for (let index = dragonFireballs.length - 1; index >= 0; index -= 1) {
+          removeDragonFireball(index);
+        }
+      }
+
+      function shootArrow(time) {
+        if (activeTool !== toolBow || time < nextArrowShotTime) {
+          return;
+        }
+
+        player.getWorldDirection(arrowDirection);
+        arrowStartPosition.copy(player.position).addScaledVector(arrowDirection, 1.15);
+        playerArrows.push(makePlayerArrow(arrowStartPosition, arrowDirection));
+        nextArrowShotTime = time + arrowShotCooldownSeconds;
+        bowKick = 1;
+        playBowShotSound();
+      }
+
+      function updatePlayerArrows(delta) {
+        for (let index = playerArrows.length - 1; index >= 0; index -= 1) {
+          const arrow = playerArrows[index];
+          arrow.ageSeconds += delta;
+          arrowPreviousPosition.copy(arrow.mesh.position);
+
+          const travelDistance = arrowSpeed * delta;
+          arrow.mesh.position.addScaledVector(arrow.direction, travelDistance);
+
+          if (findDragonHitByArrow(arrowPreviousPosition, arrow.direction, travelDistance)) {
+            removePlayerArrow(index);
+            damageDragonByArrow();
+            continue;
+          }
+
+          const groundHeight = groundHeightAt(arrow.mesh.position.x, arrow.mesh.position.z);
+          if (arrow.ageSeconds >= arrowLifeSeconds || arrow.mesh.position.y <= groundHeight + 0.12) {
+            removePlayerArrow(index);
+          }
+        }
+      }
+
+      function findDragonHitByArrow(start, direction, distance) {
+        if (!dragonAlive) {
+          return false;
+        }
+
+        dragon.updateMatrixWorld(true);
+        arrowRaycaster.set(start, direction);
+        arrowRaycaster.near = 0;
+        arrowRaycaster.far = distance + arrowHitPadding;
+
+        const hits = arrowRaycaster.intersectObjects(dragonParts, false);
 
         for (const hit of hits) {
           const hitDragonRoot = hit.object.userData.dragonRoot;
-          if (hitDragonRoot && hit.distance <= dragonHitReach && hitDragonRoot.parent !== null) {
-            return hitDragonRoot;
+          if (hitDragonRoot && hitDragonRoot.parent !== null) {
+            return true;
           }
         }
 
-        return null;
+        return false;
       }
 
-      function hitDragon(time) {
+      function removePlayerArrow(index) {
+        const [arrow] = playerArrows.splice(index, 1);
+        scene.remove(arrow.mesh);
+      }
+
+      function damageDragonByArrow() {
+        if (!dragonAlive) {
+          return;
+        }
+
         dragonHealth = Math.max(0, dragonHealth - 1);
         dragonHitFlash = 0.18;
-        nextDragonHitTime = time + dragonHitSeconds;
-        playPickaxeHit();
+        playArrowHitSound();
         updateDragonBar();
 
         if (dragonHealth > 0) {
-          showMessage(`Round Dragon hit! ${dragonHealth} hearts left.`);
+          showMessage(`Arrow hit! ${dragonHealth} dragon hearts left.`);
           return;
         }
 
@@ -2105,6 +2451,8 @@
         dragonFalling = true;
         dragon.rotation.set(0, dragon.rotation.y, Math.PI / 2);
         dragon.userData.breath.visible = false;
+        dragonBreathGlowSeconds = 0;
+        clearDragonFireballs();
         dragon.userData.leftWing.rotation.x = -0.35;
         dragon.userData.rightWing.rotation.x = 0.35;
         canFly = true;
@@ -2129,9 +2477,6 @@
         playerHearts = maxPlayerHearts;
         player.position.set(0, playerHeight, 22);
         velocity.set(0, 0, 0);
-        lavaTouchSeconds = 0;
-        waterTouchSeconds = 0;
-        waterDamageTickSeconds = 0;
         updatePlayerHud();
         showMessage(deathMessage);
       }
@@ -2157,6 +2502,7 @@
       function updatePlayerHud() {
         heartCountLabel.textContent = `${playerHearts}/${maxPlayerHearts}`;
         flyingStateLabel.textContent = canFly ? "Yes" : "No";
+        toolStateLabel.textContent = activeTool;
       }
 
       function updateInventoryHud() {
@@ -2211,7 +2557,7 @@
       }
 
       function updatePickaxe(time, delta) {
-        const targetSwing = mouseDown && gameStarted ? 1 : 0;
+        const targetSwing = mouseDown && gameStarted && activeTool === toolPickaxe ? 1 : 0;
         pickaxeSwing += (targetSwing - pickaxeSwing) * Math.min(delta * 10, 1);
 
         const hit = Math.abs(Math.sin(time * 14)) * pickaxeSwing;
@@ -2220,6 +2566,17 @@
         pickaxe.rotation.z = -0.34 - hit * 0.16;
         pickaxe.position.y = -0.62 + hit * 0.1;
         pickaxe.position.z = -1.25 + hit * 0.08;
+      }
+
+      function updateBow(delta) {
+        bowKick = Math.max(0, bowKick - delta * 5.5);
+        const pull = bowKick * bowKick;
+        bow.position.set(0.62 + pull * 0.04, -0.48 - pull * 0.03, -1.12 + pull * 0.12);
+        bow.rotation.set(-0.08 - pull * 0.1, -0.38, 0.12 + pull * 0.05);
+
+        if (bow.userData.heldArrow) {
+          bow.userData.heldArrow.visible = bowKick < 0.58;
+        }
       }
 
       function updateMessage(delta) {
