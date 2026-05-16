@@ -1,0 +1,235 @@
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #79b9e8;
+  color: #fff;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+canvas {
+  display: block;
+}
+
+#startScreen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 44%, rgba(255, 130, 24, 0.24), transparent 0 24rem),
+    rgba(8, 18, 28, 0.72);
+  z-index: 20;
+  cursor: pointer;
+}
+
+#startBox {
+  text-align: center;
+  padding: 1.5rem 1.75rem;
+}
+
+#startBox h1 {
+  margin: 0 0 0.45rem;
+  font-size: clamp(2.25rem, 7vw, 5rem);
+  line-height: 1;
+  letter-spacing: 0;
+  text-shadow: 0 0.25rem 1.5rem rgba(0, 0, 0, 0.38);
+}
+
+#startBox p {
+  margin: 0.25rem 0;
+  font-size: clamp(1.05rem, 2.4vw, 1.35rem);
+  text-shadow: 0 0.15rem 0.6rem rgba(0, 0, 0, 0.45);
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#inventory {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  min-width: 12.5rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.45rem;
+  background: rgba(10, 21, 28, 0.62);
+  box-shadow: 0 0.6rem 1.6rem rgba(0, 0, 0, 0.18);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+#playerStatus {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  min-width: 12.5rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.45rem;
+  background: rgba(10, 21, 28, 0.62);
+  box-shadow: 0 0.6rem 1.6rem rgba(0, 0, 0, 0.18);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+#message {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(30rem, calc(100vw - 2rem));
+  padding: 0.58rem 0.8rem;
+  border-radius: 0.45rem;
+  background: rgba(10, 21, 28, 0.58);
+  text-align: center;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+#message.visible {
+  opacity: 1;
+}
+
+#crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.9rem;
+  height: 0.9rem;
+  transform: translate(-50%, -50%);
+}
+
+#crosshair::before,
+#crosshair::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 0 0.2rem rgba(0, 0, 0, 0.5);
+}
+
+#crosshair::before {
+  left: 50%;
+  top: 0;
+  width: 0.12rem;
+  height: 100%;
+  transform: translateX(-50%);
+}
+
+#crosshair::after {
+  left: 0;
+  top: 50%;
+  width: 100%;
+  height: 0.12rem;
+  transform: translateY(-50%);
+}
+
+#minePanel {
+  position: absolute;
+  left: 50%;
+  bottom: 2rem;
+  width: min(22rem, calc(100vw - 2rem));
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+#minePanel.visible {
+  opacity: 1;
+}
+
+#mineLabel {
+  margin-bottom: 0.45rem;
+  text-align: center;
+  font-weight: 800;
+  text-shadow: 0 0.15rem 0.35rem rgba(0, 0, 0, 0.45);
+}
+
+#mineTrack {
+  height: 0.9rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(5, 15, 20, 0.64);
+}
+
+#mineFill {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ffd24a, #ff7a1a, #ef2a14);
+  box-shadow: 0 0 0.8rem rgba(255, 111, 20, 0.7);
+}
+
+#dragonPanel {
+  position: absolute;
+  left: 50%;
+  bottom: 4.15rem;
+  width: min(22rem, calc(100vw - 2rem));
+  transform: translateX(-50%);
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+#dragonPanel.hidden {
+  opacity: 0;
+}
+
+#dragonLabel {
+  margin-bottom: 0.45rem;
+  text-align: center;
+  font-weight: 800;
+  text-shadow: 0 0.15rem 0.35rem rgba(0, 0, 0, 0.45);
+}
+
+#dragonTrack {
+  height: 0.75rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 999px;
+  background: rgba(5, 15, 20, 0.64);
+}
+
+#dragonFill {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8efff0, #b965ff, #ff4d8d);
+  box-shadow: 0 0 0.75rem rgba(185, 101, 255, 0.7);
+}
+
+@media (max-width: 720px) {
+  #playerStatus,
+  #inventory {
+    top: 0.6rem;
+    min-width: 0;
+    width: calc(50vw - 1.35rem);
+    padding: 0.55rem 0.6rem;
+    font-size: 0.82rem;
+    line-height: 1.28;
+  }
+
+  #playerStatus {
+    left: 0.6rem;
+  }
+
+  #inventory {
+    right: 0.6rem;
+  }
+
+  #message {
+    top: 5.9rem;
+  }
+}
